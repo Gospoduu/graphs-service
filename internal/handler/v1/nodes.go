@@ -1,11 +1,13 @@
 package v1
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/Gospoduu/graphs-service/internal/domain"
@@ -13,26 +15,27 @@ import (
 	"github.com/Gospoduu/graphs-service/internal/service"
 )
 
-type GraphHandler struct {
-	service *service.GraphService
+type NodeHandler struct {
+	service *service.NodeService
 }
 
-func NewGraphHandler(graphService *service.GraphService) *GraphHandler {
-	return &GraphHandler{service: graphService}
+func NewNodeHandler(nodeService *service.NodeService) *NodeHandler {
+	return &NodeHandler{service: nodeService}
 }
 
-func (gh *GraphHandler) Create(c *gin.Context) {
-	var req dto.CreateGraphRequest
+func (nh *NodeHandler) Create(c *gin.Context) {
+	var req dto.CreateNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	newGraph, err := gh.service.Create(
+	newNode, err := nh.service.Create(
 		c.Request.Context(),
-		domain.Graph{
-			Name:       req.Name,
-			UserID:     req.UserID,
-			IsDirected: req.IsDirected,
+		domain.Node{
+			GraphID:  req.GraphID,
+			Metadata: datatypes.JSON(req.Metadata),
+			X:        req.X,
+			Y:        req.Y,
 		},
 	)
 	if err != nil {
@@ -41,23 +44,24 @@ func (gh *GraphHandler) Create(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusCreated,
-		dto.GraphResponse{
-			ID:         newGraph.ID,
-			Name:       newGraph.Name,
-			UserID:     newGraph.UserID,
-			IsDirected: newGraph.IsDirected,
+		dto.NodeResponse{
+			ID:       newNode.ID,
+			GraphID:  newNode.GraphID,
+			Metadata: json.RawMessage(newNode.Metadata),
+			X:        newNode.X,
+			Y:        newNode.Y,
 		},
 	)
 }
 
-func (gh *GraphHandler) GetGraphByID(c *gin.Context) {
+func (nh *NodeHandler) GetNodeByID(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	graph, err := gh.service.GetByID(c.Request.Context(), id)
+	node, err := nh.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -68,23 +72,24 @@ func (gh *GraphHandler) GetGraphByID(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.GraphResponse{
-			ID:         graph.ID,
-			Name:       graph.Name,
-			UserID:     graph.UserID,
-			IsDirected: graph.IsDirected,
+		dto.NodeResponse{
+			ID:       node.ID,
+			GraphID:  node.GraphID,
+			Metadata: json.RawMessage(node.Metadata),
+			X:        node.X,
+			Y:        node.Y,
 		},
 	)
 }
 
-func (gh *GraphHandler) DeleteGraphByID(c *gin.Context) {
+func (nh *NodeHandler) DeleteNodeByID(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	err = gh.service.DeleteByID(c.Request.Context(), id)
+	err = nh.service.DeleteByID(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -95,50 +100,25 @@ func (gh *GraphHandler) DeleteGraphByID(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.DeleteGraphResponse{
+		dto.DeleteNodeResponse{
 			ID: id,
 		},
 	)
 }
 
-func (gh *GraphHandler) ToggleIsDirected(c *gin.Context) {
+func (nh *NodeHandler) ChangePosition(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	isDirected, err := gh.service.ToggleIsDirected(c.Request.Context(), id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(
-		http.StatusOK,
-		dto.ToggleIsDirectedResponse{
-			ID:         id,
-			IsDirected: isDirected,
-		},
-	)
-}
-
-func (gh *GraphHandler) RenameGraph(c *gin.Context) {
-	rawID := c.Param("id")
-	id, err := uuid.Parse(rawID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	var req dto.RenameGraphRequest
+	var req dto.ChangePositionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	err = gh.service.PatchByID(c.Request.Context(), id, map[string]any{"name": req.NewName})
+	err = nh.service.PatchByID(c.Request.Context(), id, map[string]any{"x": req.X, "y": req.Y})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -149,9 +129,8 @@ func (gh *GraphHandler) RenameGraph(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.RenameGraphResponse{
-			ID:      id,
-			NewName: req.NewName,
+		dto.ChangePositionResponse{
+			ID: id,
 		},
 	)
 }

@@ -1,11 +1,13 @@
 package v1
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/Gospoduu/graphs-service/internal/domain"
@@ -13,26 +15,28 @@ import (
 	"github.com/Gospoduu/graphs-service/internal/service"
 )
 
-type GraphHandler struct {
-	service *service.GraphService
+type EdgeHandler struct {
+	service *service.EdgeService
 }
 
-func NewGraphHandler(graphService *service.GraphService) *GraphHandler {
-	return &GraphHandler{service: graphService}
+func NewEdgeHandler(edgeService *service.EdgeService) *EdgeHandler {
+	return &EdgeHandler{service: edgeService}
 }
 
-func (gh *GraphHandler) Create(c *gin.Context) {
-	var req dto.CreateGraphRequest
+func (eh *EdgeHandler) Create(c *gin.Context) {
+	var req dto.CreateEdgeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	newGraph, err := gh.service.Create(
+	newEdge, err := eh.service.Create(
 		c.Request.Context(),
-		domain.Graph{
-			Name:       req.Name,
-			UserID:     req.UserID,
-			IsDirected: req.IsDirected,
+		domain.Edge{
+			GraphID:  req.GraphID,
+			SourceID: req.SourceID,
+			TargetID: req.TargetID,
+			Metadata: datatypes.JSON(req.Metadata),
+			Weight:   req.Weight,
 		},
 	)
 	if err != nil {
@@ -41,23 +45,25 @@ func (gh *GraphHandler) Create(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusCreated,
-		dto.GraphResponse{
-			ID:         newGraph.ID,
-			Name:       newGraph.Name,
-			UserID:     newGraph.UserID,
-			IsDirected: newGraph.IsDirected,
+		dto.EdgeResponse{
+			ID:       newEdge.ID,
+			GraphID:  newEdge.GraphID,
+			SourceID: newEdge.SourceID,
+			TargetID: newEdge.TargetID,
+			Metadata: json.RawMessage(newEdge.Metadata),
+			Weight:   newEdge.Weight,
 		},
 	)
 }
 
-func (gh *GraphHandler) GetGraphByID(c *gin.Context) {
+func (eh *EdgeHandler) GetEdgeByID(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	graph, err := gh.service.GetByID(c.Request.Context(), id)
+	edge, err := eh.service.GetByID(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -68,23 +74,25 @@ func (gh *GraphHandler) GetGraphByID(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.GraphResponse{
-			ID:         graph.ID,
-			Name:       graph.Name,
-			UserID:     graph.UserID,
-			IsDirected: graph.IsDirected,
+		dto.EdgeResponse{
+			ID:       edge.ID,
+			GraphID:  edge.GraphID,
+			SourceID: edge.SourceID,
+			TargetID: edge.TargetID,
+			Metadata: json.RawMessage(edge.Metadata),
+			Weight:   edge.Weight,
 		},
 	)
 }
 
-func (gh *GraphHandler) DeleteGraphByID(c *gin.Context) {
+func (eh *EdgeHandler) DeleteEdgeByID(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	err = gh.service.DeleteByID(c.Request.Context(), id)
+	err = eh.service.DeleteByID(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -95,20 +103,20 @@ func (gh *GraphHandler) DeleteGraphByID(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.DeleteGraphResponse{
+		dto.DeleteEdgeResponse{
 			ID: id,
 		},
 	)
 }
 
-func (gh *GraphHandler) ToggleIsDirected(c *gin.Context) {
+func (eh *EdgeHandler) ToggleDirect(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	isDirected, err := gh.service.ToggleIsDirected(c.Request.Context(), id)
+	newSource, newTarget, err := eh.service.ToggleDirect(c.Request.Context(), id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -119,26 +127,27 @@ func (gh *GraphHandler) ToggleIsDirected(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.ToggleIsDirectedResponse{
-			ID:         id,
-			IsDirected: isDirected,
+		dto.ToggleDirectionResponse{
+			ID:       id,
+			SourceID: newSource,
+			TargetID: newTarget,
 		},
 	)
 }
 
-func (gh *GraphHandler) RenameGraph(c *gin.Context) {
+func (eh *EdgeHandler) ChangeWeight(c *gin.Context) {
 	rawID := c.Param("id")
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	var req dto.RenameGraphRequest
+	var req dto.ChangeWeightRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	err = gh.service.PatchByID(c.Request.Context(), id, map[string]any{"name": req.NewName})
+	err = eh.service.PatchByID(c.Request.Context(), id, map[string]any{"weight": req.Weight})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -149,9 +158,8 @@ func (gh *GraphHandler) RenameGraph(c *gin.Context) {
 	}
 	c.JSON(
 		http.StatusOK,
-		dto.RenameGraphResponse{
-			ID:      id,
-			NewName: req.NewName,
+		dto.ChangeWeightResponse{
+			ID: id,
 		},
 	)
 }

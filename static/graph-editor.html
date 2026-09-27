@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0e1116;
+  --bg-canvas:#11151c;
+  --grid:rgba(255,255,255,.05);
+  --panel:#161b22ee;
+  --panel-border:#262c36;
+  --line:#262c36;
+  --text:#e6edf3;
+  --muted:#7d8590;
+  --teal:#5eead4;
+  --teal-dim:#2c4b47;
+  --amber:#f2b84b;
+  --amber-dim:#4a3c1e;
+  --danger:#f87171;
+  --danger-dim:#4a2626;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Space Grotesk',sans-serif;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:'JetBrains Mono',monospace;}
+
+/* ---------- layout ---------- */
+#app{display:flex;flex-direction:column;height:100vh;}
+
+#topbar{
+  display:flex;align-items:center;gap:14px;
+  padding:10px 16px;
+  background:var(--panel);
+  border-bottom:1px solid var(--panel-border);
+  backdrop-filter:blur(8px);
+  z-index:20;
+}
+#brand{font-weight:700;font-size:15px;letter-spacing:.2px;white-space:nowrap;}
+#brand span{color:var(--teal);}
+#user-badge{
+  font-size:12px;color:var(--muted);
+  padding:4px 10px;border:1px solid var(--panel-border);border-radius:20px;
+  white-space:nowrap;
+}
+#tabs-wrap{flex:1;overflow-x:auto;overflow-y:hidden;display:flex;align-items:flex-end;height:40px;scrollbar-width:thin;}
+#tabs{display:flex;gap:4px;height:100%;align-items:flex-end;}
+.tab{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 14px;height:32px;
+  background:#1c222b;border:1px solid var(--panel-border);border-bottom:none;
+  border-radius:8px 8px 0 0;
+  font-size:13px;cursor:pointer;white-space:nowrap;
+  color:var(--muted);
+  transition:background .15s,color .15s;
+}
+.tab:hover{color:var(--text);}
+.tab.active{background:var(--bg-canvas);color:var(--text);border-color:var(--line);}
+.tab .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);flex:none;}
+.tab-new{
+  display:flex;align-items:center;gap:6px;
+  padding:8px 14px;height:32px;
+  border-radius:8px 8px 0 0;
+  font-size:13px;color:var(--muted);cursor:pointer;
+  border:1px dashed var(--panel-border);border-bottom:none;
+}
+.tab-new:hover{color:var(--teal);border-color:var(--teal-dim);}
+
+#directed-toggle{
+  flex:none;
+  display:flex;align-items:center;gap:8px;
+  padding:7px 14px;
+  background:#1c222b;border:1px solid var(--panel-border);border-radius:20px;
+  font-size:12.5px;cursor:pointer;white-space:nowrap;
+  transition:border-color .15s;
+}
+#directed-toggle:hover{border-color:var(--teal-dim);}
+#directed-toggle .sw{
+  width:30px;height:16px;border-radius:20px;background:var(--line);position:relative;transition:background .15s;flex:none;
+}
+#directed-toggle .sw::after{
+  content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--muted);transition:transform .15s,background .15s;
+}
+#directed-toggle.on .sw{background:var(--teal-dim);}
+#directed-toggle.on .sw::after{transform:translateX(14px);background:var(--teal);}
+
+#body{flex:1;display:flex;position:relative;overflow:hidden;}
+
+/* ---------- sidebar ---------- */
+#sidebar{
+  width:260px;flex:none;
+  background:var(--panel);border-right:1px solid var(--panel-border);
+  display:flex;flex-direction:column;overflow:hidden;
+  transition:width .18s,min-width .18s;
+  backdrop-filter:blur(8px);
+}
+#sidebar.collapsed{width:40px;}
+#sidebar-toggle{
+  display:flex;align-items:center;justify-content:center;
+  height:36px;flex:none;cursor:pointer;color:var(--muted);
+  border-bottom:1px solid var(--panel-border);font-size:13px;
+}
+#sidebar-toggle:hover{color:var(--text);}
+#sidebar-content{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
+#sidebar.collapsed #sidebar-content{display:none;}
+.side-section{border-bottom:1px solid var(--panel-border);}
+.side-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;cursor:pointer;font-size:12px;
+  text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+}
+.side-head:hover{color:var(--text);}
+.side-head .count{color:var(--muted);font-size:11px;}
+.side-list{max-height:320px;overflow-y:auto;}
+.side-section.collapsed .side-list{display:none;}
+.side-item{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 14px;font-size:12.5px;cursor:pointer;
+  border-top:1px solid #1d232c;
+}
+.side-item:hover{background:#1a2029;}
+.side-item .lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+.side-item .sub{color:var(--muted);font-size:11px;}
+.side-item .ico-btn{opacity:.5;}
+.side-item:hover .ico-btn{opacity:1;}
+.empty-hint{padding:14px;font-size:12px;color:var(--muted);}
+
+.ico-btn{
+  width:20px;height:20px;flex:none;border:none;background:transparent;color:var(--muted);
+  cursor:pointer;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:13px;
+}
+.ico-btn:hover{background:var(--danger-dim);color:var(--danger);}
+.ico-btn.edit:hover{background:var(--teal-dim);color:var(--teal);}
+
+/* ---------- canvas ---------- */
+#viewport{flex:1;overflow:auto;position:relative;background:var(--bg-canvas);}
+#canvas{
+  width:3200px;height:2200px;position:relative;
+  background-image:radial-gradient(var(--grid) 1.5px,transparent 1.5px);
+  background-size:26px 26px;
+  cursor:crosshair;
+}
+#edge-layer{position:absolute;inset:0;pointer-events:none;}
+#edge-layer path,#edge-layer line{pointer-events:stroke;cursor:pointer;}
+
+.node{
+  position:absolute;width:52px;height:52px;border-radius:50%;
+  background:var(--amber);color:#241a05;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;font-weight:600;font-size:15px;
+  transform:translate(-50%,-50%);
+  box-shadow:0 2px 10px rgba(0,0,0,.4);
+  cursor:grab;user-select:none;
+  border:2px solid #00000022;
+  transition:box-shadow .15s;
+  z-index:2;
+}
+.node:hover{box-shadow:0 0 0 3px rgba(242,184,75,.25),0 2px 10px rgba(0,0,0,.4);}
+.node.pending{box-shadow:0 0 0 4px rgba(94,234,212,.45);background:var(--teal);}
+.node.dragging{cursor:grabbing;}
+
+.edge-weight{
+  position:absolute;transform:translate(-50%,-50%);
+  background:#1c222bdd;border:1px solid var(--panel-border);
+  color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:2px 6px;border-radius:8px;pointer-events:none;z-index:3;white-space:nowrap;
+}
+
+.empty-canvas-hint{
+  position:absolute;top:24px;left:50%;transform:translateX(-50%);
+  color:var(--muted);font-size:12.5px;pointer-events:none;
+  border:1px dashed var(--panel-border);padding:8px 16px;border-radius:10px;
+}
+
+/* ---------- context menu ---------- */
+#ctx-menu{
+  position:fixed;z-index:100;
+  background:#1c222b;border:1px solid var(--panel-border);border-radius:10px;
+  box-shadow:0 8px 30px rgba(0,0,0,.5);
+  padding:5px;min-width:170px;display:none;
+}
+#ctx-menu button{
+  display:block;width:100%;text-align:left;
+  background:none;border:none;color:var(--text);font-size:13px;
+  padding:8px 10px;border-radius:7px;cursor:pointer;font-family:inherit;
+}
+#ctx-menu button:hover{background:#262c36;}
+#ctx-menu button.danger{color:var(--danger);}
+#ctx-menu button.danger:hover{background:var(--danger-dim);}
+
+/* ---------- modal ---------- */
+#overlay{position:fixed;inset:0;background:rgba(5,7,10,.55);z-index:200;display:none;align-items:center;justify-content:center;}
+#modal{
+  background:#161b22;border:1px solid var(--panel-border);border-radius:14px;
+  padding:20px;width:280px;box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+#modal h3{margin:0 0 14px;font-size:14px;font-weight:600;}
+#modal input{
+  width:100%;padding:9px 10px;border-radius:8px;border:1px solid var(--panel-border);
+  background:#0e1116;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:14px;
+  margin-bottom:14px;
+}
+#modal input:focus{outline:none;border-color:var(--teal-dim);}
+#modal .row{display:flex;gap:8px;justify-content:flex-end;}
+#modal button{
+  padding:8px 14px;border-radius:8px;border:none;font-size:13px;cursor:pointer;font-family:inherit;
+}
+#modal .cancel{background:transparent;color:var(--muted);}
+#modal .cancel:hover{color:var(--text);}
+#modal .save{background:var(--teal);color:#062420;font-weight:600;}
+
+/* ---------- toast ---------- */
+#toast{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(10px);
+  background:#1c222b;border:1px solid var(--danger-dim);color:var(--text);
+  padding:10px 16px;border-radius:10px;font-size:12.5px;z-index:300;
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:420px;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:#262c36;border-radius:6px;}
+::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="topbar">
+    <div id="brand">graph<span>·</span>editor</div>
+    <div id="user-badge">—</div>
+    <div id="tabs-wrap"><div id="tabs"></div></div>
+    <div id="directed-toggle">
+      <div class="sw"></div>
+      <span id="directed-label">Неориентированный</span>
+    </div>
+  </div>
+
+  <div id="body">
+    <div id="sidebar">
+      <div id="sidebar-toggle">◂</div>
+      <div id="sidebar-content">
+        <div class="side-section" id="section-nodes">
+          <div class="side-head" data-target="nodes">
+            <span>Ноды</span><span class="count" id="nodes-count">0</span>
+          </div>
+          <div class="side-list" id="nodes-list"></div>
+        </div>
+        <div class="side-section" id="section-edges">
+          <div class="side-head" data-target="edges">
+            <span>Связи</span><span class="count" id="edges-count">0</span>
+          </div>
+          <div class="side-list" id="edges-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="viewport">
+      <div id="canvas">
+        <svg id="edge-layer" width="3200" height="2200">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5eead4"></path>
+            </marker>
+          </defs>
+          <g id="edge-lines"></g>
+        </svg>
+        <div class="empty-canvas-hint" id="empty-hint">Кликните по полю, чтобы создать ноду</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ctx-menu"></div>
+
+<div id="overlay">
+  <div id="modal">
+    <h3 id="modal-title">Вес связи</h3>
+    <input id="modal-input" type="number" step="any">
+    <div class="row">
+      <button class="cancel" id="modal-cancel">Отмена</button>
+      <button class="save" id="modal-save">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API_BASE = 'http://localhost:8080/api/v1';
+
+const state = {
+  userId: null,
+  userName: 'Вася',
+  graphs: {},        // id -> {id,name,isDirected,nodes:{},edges:{},nextNum}
+  activeGraphId: null,
+  pendingSource: null,
+};
+
+// ---------------- API ----------------
+async function api(method, path, body){
+  let res;
+  try{
+    res = await fetch(API_BASE + path, {
+      method,
+      headers: body ? {'Content-Type':'application/json'} : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }catch(e){
+    toast('Нет соединения с API (' + API_BASE + '). Проверь, что сервер запущен и разрешён CORS.');
+    throw e;
+  }
+  if(!res.ok){
+    let msg = 'Ошибка ' + res.status;
+    try{ const j = await res.json(); if(j.error) msg = j.error; }catch(e){}
+    toast(msg);
+    throw new Error(msg);
+  }
+  if(res.status === 204) return null;
+  return res.json();
+}
+
+let toastTimer;
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 3500);
+}
+
+// ---------------- init ----------------
+async function init(){
+  try{
+    const user = await api('POST','/users',{name: state.userName});
+    state.userId = user.id;
+    document.getElementById('user-badge').textContent = user.name;
+  }catch(e){
+    document.getElementById('user-badge').textContent = 'офлайн';
+  }
+  bindGlobalEvents();
+  await createGraph();
+}
+
+// ---------------- graphs ----------------
+async function createGraph(){
+  const n = Object.keys(state.graphs).length + 1;
+  let g;
+  try{
+    g = await api('POST','/graphs',{name:'Граф '+n, user_id: state.userId, is_directed:false});
+  }catch(e){ return; }
+  state.graphs[g.id] = {id:g.id, name:g.name, isDirected:g.is_directed, nodes:{}, edges:{}, nextNum:1};
+  state.activeGraphId = g.id;
+  renderTabs();
+  renderAll();
+}
+
+function switchGraph(id){
+  state.activeGraphId = id;
+  state.pendingSource = null;
+  renderTabs();
+  renderAll();
+}
+
+async function renameActiveGraph(newName){
+  const g = currentGraph(); if(!g) return;
+  try{
+    await api('PATCH','/graphs/'+g.id+'/rename', {new_name:newName});
+    g.name = newName;
+    renderTabs();
+  }catch(e){}
+}
+
+async function toggleDirected(){
+  const g = currentGraph(); if(!g) return;
+  try{
+    const res = await api('PATCH','/graphs/'+g.id+'/toggle-directed');
+    g.isDirected = res.is_directed;
+    renderDirectedToggle();
+    renderEdges();
+    renderSidebar();
+  }catch(e){}
+}
+
+function currentGraph(){ return state.graphs[state.activeGraphId]; }
+
+// ---------------- nodes ----------------
+async function createNode(x,y){
+  const g = currentGraph(); if(!g) return;
+  const label = String(g.nextNum++);
+  let n;
+  try{
+    n = await api('POST','/nodes',{graph_id:g.id, meta_data:{label}, x, y});
+  }catch(e){ g.nextNum--; return; }
+  g.nodes[n.id] = {id:n.id, x:n.x, y:n.y, label};
+  renderAll();
+}
+
+async function moveNode(nodeId, x, y){
+  const g = currentGraph(); if(!g) return;
+  const node = g.nodes[nodeId]; if(!node) return;
+  node.x = x; node.y = y;
+  renderCanvasOnly();
+  try{ await api('PATCH','/nodes/'+nodeId+'/position',{x,y}); }catch(e){}
+}
+
+async function deleteNode(nodeId){
+  const g = currentGraph(); if(!g) return;
+  try{ await api('DELETE','/nodes/'+nodeId); }catch(e){ return; }
+  delete g.nodes[nodeId];
+  Object.keys(g.edges).forEach(eid=>{
+    const e = g.edges[eid];
+    if(e.source===nodeId || e.target===nodeId) delete g.edges[eid];
+  });
+  if(state.pendingSource===nodeId) state.pendingSource=null;
+  renderAll();
+}
+
+// ---------------- edges ----------------
+async function createEdge(sourceId,targetId){
+  const g = currentGraph(); if(!g) return;
+  if(sourceId===targetId) return;
+  let e;
+  try{
+    e = await api('POST','/edges',{graph_id:g.id, source_id:sourceId, target_id:targetId, weight:1});
+  }catch(err){ return; }
+  g.edges[e.id] = {id:e.id, source:e.source_id, target:e.target_id, weight:e.weight};
+  renderAll();
+}
+
+async function deleteEdge(edgeId){
+  const g = currentGraph(); if(!g) return;
+  try{ await api('DELETE','/edges/'+edgeId); }catch(e){ return; }
+  delete g.edges[edgeId];
+  renderAll();
+}
+
+async function toggleEdgeDirection(edgeId){
+  const g = currentGraph(); if(!g) return;
+  try{
+    const res = await api('PATCH','/edges/'+edgeId+'/toggle-direction');
+    const e = g.edges[edgeId];
+    e.source = res.source_id; e.target = res.target_id;
+    renderAll();
+  }catch(err){}
+}
+
+async function changeEdgeWeight(edgeId, weight){
+  const g = currentGraph(); if(!g) return;
+  try{
+    await api('PATCH','/edges/'+edgeId+'/weight',{weight});
+    g.edges[edgeId].weight = weight;
+    renderEdges();
+    renderSidebar();
+  }catch(e){}
+}
+
+// ---------------- render ----------------
+function renderAll(){
+  renderDirectedToggle();
+  renderCanvasOnly();
+  renderSidebar();
+}
+
+function renderDirectedToggle(){
+  const g = currentGraph();
+  const btn = document.getElementById('directed-toggle');
+  const label = document.getElementById('directed-label');
+  if(!g){ return; }
+  btn.classList.toggle('on', g.isDirected);
+  label.textContent = g.isDirected ? 'Ориентированный' : 'Неориентированный';
+}
+
+function renderTabs(){
+  const wrap = document.getElementById('tabs');
+  wrap.innerHTML = '';
+  Object.values(state.graphs).forEach(g=>{
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (g.id===state.activeGraphId ? ' active':'');
+    tab.innerHTML = '<span class="dot"></span><span>'+escapeHtml(g.name)+'</span>';
+    tab.onclick = ()=>switchGraph(g.id);
+    tab.ondblclick = (ev)=>{
+      ev.stopPropagation();
+      openTextModal('Название графа', g.name, (val)=>{ if(val) renameActiveGraph(val); });
+    };
+    wrap.appendChild(tab);
+  });
+  const plus = document.createElement('div');
+  plus.className = 'tab-new';
+  plus.innerHTML = '+ новый граф';
+  plus.onclick = createGraph;
+  wrap.appendChild(plus);
+}
+
+function renderCanvasOnly(){
+  const g = currentGraph();
+  const canvas = document.getElementById('canvas');
+  document.querySelectorAll('.node').forEach(el=>el.remove());
+  document.getElementById('empty-hint').style.display = g && Object.keys(g.nodes).length ? 'none':'block';
+  if(!g) { renderEdges(); return; }
+  Object.values(g.nodes).forEach(n=>{
+    const el = document.createElement('div');
+    el.className = 'node' + (state.pendingSource===n.id ? ' pending':'');
+    el.style.left = n.x+'px'; el.style.top = n.y+'px';
+    el.textContent = n.label;
+    el.dataset.id = n.id;
+    bindNodeEvents(el, n.id);
+    canvas.appendChild(el);
+  });
+  renderEdges();
+}
+
+function renderEdges(){
+  const g = currentGraph();
+  const edgeLines = document.getElementById('edge-lines');
+  // Preserve <defs>: clear only the rendered edges.
+  edgeLines.replaceChildren();
+  document.querySelectorAll('.edge-weight').forEach(el=>el.remove());
+  if(!g) return;
+  Object.values(g.edges).forEach(e=>{
+    const a = g.nodes[e.source], b = g.nodes[e.target];
+    if(!a||!b) return;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const distance = Math.hypot(dx, dy);
+    const nodeRadius = 26; // .node is 52px wide, including its border.
+    const inset = nodeRadius + 3;
+    // Overlapping nodes leave no visible space for a straight edge.
+    if(distance <= inset * 2) return;
+    const ux = dx / distance, uy = dy / distance;
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', Number(a.x) + ux * inset);
+    line.setAttribute('y1', Number(a.y) + uy * inset);
+    line.setAttribute('x2', Number(b.x) - ux * inset);
+    line.setAttribute('y2', Number(b.y) - uy * inset);
+    line.setAttribute('stroke','#5eead4');
+    line.setAttribute('stroke-width', 2.5);
+    line.setAttribute('stroke-linecap','round');
+    line.style.pointerEvents = 'stroke';
+    if(g.isDirected) line.setAttribute('marker-end','url(#arrow)');
+    line.oncontextmenu = (ev)=>{ ev.preventDefault(); showEdgeMenu(ev, e.id); };
+    edgeLines.appendChild(line);
+
+    const mx = (a.x+b.x)/2, my=(a.y+b.y)/2;
+    const tag = document.createElement('div');
+    tag.className = 'edge-weight';
+    tag.style.left = mx+'px'; tag.style.top = my+'px';
+    tag.textContent = fmtWeight(e.weight);
+    document.getElementById('canvas').appendChild(tag);
+  });
+}
+
+function fmtWeight(w){
+  return Number.isInteger(w) ? String(w) : String(w);
+}
+
+function renderSidebar(){
+  const g = currentGraph();
+  const nodesList = document.getElementById('nodes-list');
+  const edgesList = document.getElementById('edges-list');
+  nodesList.innerHTML=''; edgesList.innerHTML='';
+  if(!g){
+    document.getElementById('nodes-count').textContent='0';
+    document.getElementById('edges-count').textContent='0';
+    return;
+  }
+  const nodes = Object.values(g.nodes);
+  const edges = Object.values(g.edges);
+  document.getElementById('nodes-count').textContent = nodes.length;
+  document.getElementById('edges-count').textContent = edges.length;
+
+  if(!nodes.length) nodesList.innerHTML = '<div class="empty-hint">Пока нет нод</div>';
+  nodes.forEach(n=>{
+    const row = document.createElement('div');
+    row.className='side-item';
+    row.innerHTML = '<span class="lbl">Нода '+escapeHtml(n.label)+'</span>';
+    row.onclick = ()=>focusOnCanvas(n.x,n.y);
+    const del = document.createElement('button');
+    del.className='ico-btn'; del.textContent='✕';
+    del.onclick = (ev)=>{ ev.stopPropagation(); deleteNode(n.id); };
+    row.appendChild(del);
+    nodesList.appendChild(row);
+  });
+
+  if(!edges.length) edgesList.innerHTML = '<div class="empty-hint">Пока нет связей</div>';
+  edges.forEach(e=>{
+    const a=g.nodes[e.source], b=g.nodes[e.target];
+    const row = document.createElement('div');
+    row.className='side-item';
+    const arrow = g.isDirected ? '→' : '—';
+    row.innerHTML = '<span class="lbl">'+(a?a.label:'?')+' '+arrow+' '+(b?b.label:'?')+
+      ' <span class="sub mono">w='+fmtWeight(e.weight)+'</span></span>';
+    row.onclick = ()=>{ if(a&&b) focusOnCanvas((a.x+b.x)/2,(a.y+b.y)/2); };
+    const edit = document.createElement('button');
+    edit.className='ico-btn edit'; edit.textContent='✎';
+    edit.onclick=(ev)=>{ ev.stopPropagation(); openWeightModal(e.id, e.weight); };
+    const del = document.createElement('button');
+    del.className='ico-btn'; del.textContent='✕';
+    del.onclick=(ev)=>{ ev.stopPropagation(); deleteEdge(e.id); };
+    row.appendChild(edit); row.appendChild(del);
+    edgesList.appendChild(row);
+  });
+}
+
+function focusOnCanvas(x,y){
+  const vp = document.getElementById('viewport');
+  vp.scrollTo({left:x-vp.clientWidth/2, top:y-vp.clientHeight/2, behavior:'smooth'});
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------------- canvas interactions ----------------
+function bindNodeEvents(el, nodeId){
+  let dragging=false, moved=false, startX,startY, origX,origY;
+
+  el.addEventListener('mousedown', (ev)=>{
+    if(ev.button!==0) return;
+    ev.stopPropagation();
+    dragging=true; moved=false;
+    startX=ev.clientX; startY=ev.clientY;
+    const g=currentGraph(); const n=g.nodes[nodeId];
+    origX=n.x; origY=n.y;
+  });
+
+  el.addEventListener('contextmenu',(ev)=>{
+    ev.preventDefault(); ev.stopPropagation();
+    showNodeMenu(ev, nodeId);
+  });
+
+  document.addEventListener('mousemove',(ev)=>{
+    if(!dragging) return;
+    const dx=ev.clientX-startX, dy=ev.clientY-startY;
+    if(Math.abs(dx)>4||Math.abs(dy)>4){
+      moved=true;
+      el.classList.add('dragging');
+      const g=currentGraph(); const n=g.nodes[nodeId];
+      n.x = origX+dx; n.y = origY+dy;
+      renderCanvasOnly();
+    }
+  });
+
+  document.addEventListener('mouseup',(ev)=>{
+    if(!dragging) return;
+    dragging=false;
+    el.classList.remove('dragging');
+    if(moved){
+      const g=currentGraph(); const n=g.nodes[nodeId];
+      moveNode(nodeId, n.x, n.y);
+    } else {
+      onNodeClick(nodeId);
+    }
+  });
+}
+
+function onNodeClick(nodeId){
+  if(state.pendingSource===null){
+    state.pendingSource = nodeId;
+    renderCanvasOnly();
+  } else if(state.pendingSource===nodeId){
+    state.pendingSource=null;
+    renderCanvasOnly();
+  } else {
+    const src = state.pendingSource;
+    state.pendingSource=null;
+    createEdge(src, nodeId);
+  }
+}
+
+function bindGlobalEvents(){
+  const canvas = document.getElementById('canvas');
+  canvas.addEventListener('mousedown', (ev)=>{
+    if(ev.target.id!=='canvas' && ev.target.id!=='edge-layer') return;
+    if(ev.button!==0) return;
+    if(state.pendingSource!==null){ state.pendingSource=null; renderCanvasOnly(); return; }
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX-rect.left, y = ev.clientY-rect.top;
+    createNode(Math.round(x), Math.round(y));
+  });
+
+  document.getElementById('directed-toggle').onclick = toggleDirected;
+
+  document.getElementById('sidebar-toggle').onclick = ()=>{
+    document.getElementById('sidebar').classList.toggle('collapsed');
+    document.getElementById('sidebar-toggle').textContent =
+      document.getElementById('sidebar').classList.contains('collapsed') ? '▸':'◂';
+  };
+
+  document.querySelectorAll('.side-head').forEach(h=>{
+    h.onclick = ()=>h.closest('.side-section').classList.toggle('collapsed');
+  });
+
+  document.addEventListener('click', (ev)=>{
+    const menu = document.getElementById('ctx-menu');
+    if(!menu.contains(ev.target)) menu.style.display='none';
+  });
+}
+
+// ---------------- context menus ----------------
+function showMenu(ev, items){
+  const menu = document.getElementById('ctx-menu');
+  menu.innerHTML='';
+  items.forEach(it=>{
+    const b=document.createElement('button');
+    b.textContent=it.label;
+    if(it.danger) b.className='danger';
+    b.onclick=()=>{ menu.style.display='none'; it.action(); };
+    menu.appendChild(b);
+  });
+  menu.style.left = ev.clientX+'px';
+  menu.style.top = ev.clientY+'px';
+  menu.style.display='block';
+}
+
+function showNodeMenu(ev, nodeId){
+  showMenu(ev, [
+    {label:'Удалить ноду', danger:true, action:()=>deleteNode(nodeId)},
+  ]);
+}
+
+function showEdgeMenu(ev, edgeId){
+  const g = currentGraph(); const e = g.edges[edgeId];
+  showMenu(ev, [
+    {label:'Изменить вес', action:()=>openWeightModal(edgeId, e.weight)},
+    {label:'Сменить направление', action:()=>toggleEdgeDirection(edgeId)},
+    {label:'Удалить связь', danger:true, action:()=>deleteEdge(edgeId)},
+  ]);
+}
+
+// ---------------- modal ----------------
+function openWeightModal(edgeId, current){
+  const overlay = document.getElementById('overlay');
+  const input = document.getElementById('modal-input');
+  document.getElementById('modal-title').textContent = 'Вес связи';
+  input.value = current;
+  overlay.style.display='flex';
+  input.focus(); input.select();
+
+  const save = ()=>{
+    const v = parseFloat(input.value);
+    overlay.style.display='none';
+    if(!Number.isNaN(v)) changeEdgeWeight(edgeId, v);
+    cleanup();
+  };
+  const cancel = ()=>{ overlay.style.display='none'; cleanup(); };
+  const onKey = (ev)=>{ if(ev.key==='Enter') save(); if(ev.key==='Escape') cancel(); };
+
+  function cleanup(){
+    document.getElementById('modal-save').onclick=null;
+    document.getElementById('modal-cancel').onclick=null;
+    input.removeEventListener('keydown', onKey);
+  }
+  document.getElementById('modal-save').onclick = save;
+  document.getElementById('modal-cancel').onclick = cancel;
+  input.addEventListener('keydown', onKey);
+}
+
+function openTextModal(title, current, onSave){
+  const overlay = document.getElementById('overlay');
+  const input = document.getElementById('modal-input');
+  document.getElementById('modal-title').textContent = title;
+  input.type='text'; input.value = current;
+  overlay.style.display='flex';
+  input.focus(); input.select();
+
+  const save = ()=>{ overlay.style.display='none'; onSave(input.value.trim()); cleanup(); input.type='number'; };
+  const cancel = ()=>{ overlay.style.display='none'; cleanup(); input.type='number'; };
+  const onKey = (ev)=>{ if(ev.key==='Enter') save(); if(ev.key==='Escape') cancel(); };
+  function cleanup(){
+    document.getElementById('modal-save').onclick=null;
+    document.getElementById('modal-cancel').onclick=null;
+    input.removeEventListener('keydown', onKey);
+  }
+  document.getElementById('modal-save').onclick = save;
+  document.getElementById('modal-cancel').onclick = cancel;
+  input.addEventListener('keydown', onKey);
+}
+
+init();
+</script>
+</body>
+</html>
