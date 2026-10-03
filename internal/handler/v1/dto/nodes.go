@@ -10,6 +10,7 @@ type NodeResponse struct {
 	ID       uuid.UUID       `json:"id"`
 	GraphID  uuid.UUID       `json:"graph_id"`
 	Metadata json.RawMessage `json:"meta_data"`
+	Name     int             `json:"name"`
 	X        float32         `json:"x"`
 	Y        float32         `json:"y"`
 }
@@ -17,6 +18,7 @@ type NodeResponse struct {
 type CreateNodeRequest struct {
 	GraphID  uuid.UUID       `json:"graph_id" binding:"required"`
 	Metadata json.RawMessage `json:"meta_data"`
+	Name     int             `json:"name"`
 	X        float32         `json:"x"`
 	Y        float32         `json:"y"`
 }

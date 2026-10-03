@@ -16,11 +16,11 @@ func NewBaseService[T any, ID domain.IDConstraint](
 	return &BaseService[T, ID]{repo: repo}
 }
 
-func (s *BaseService[T, ID]) GetByID(ctx context.Context, id ID) (*T, error) {
+func (s *BaseService[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
-func (s *BaseService[T, ID]) Create(ctx context.Context, entity T) (*T, error) {
+func (s *BaseService[T, ID]) Create(ctx context.Context, entity T) (T, error) {
 	return s.repo.Create(ctx, entity)
 }
 

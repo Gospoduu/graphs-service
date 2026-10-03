@@ -232,6 +232,12 @@ body{
 ::-webkit-scrollbar{width:10px;height:10px;}
 ::-webkit-scrollbar-thumb{background:#262c36;border-radius:6px;}
 ::-webkit-scrollbar-track{background:transparent;}
+
+button,select,input{font:inherit} button{cursor:pointer} button:disabled{opacity:.45;cursor:wait}
+.action{background:#1c222b;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.mask-controls{padding:10px 14px;display:grid;gap:8px}.mask-controls select,.mask-controls input{width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px}
+.side-section.collapsed .mask-controls{display:none}.side-item.selected{background:var(--teal-dim)}
+.mask-note{font-size:11px;color:var(--muted);line-height:1.5}#app.busy #body,#app.busy #tabs-wrap,#app.busy #directed-toggle{pointer-events:none;opacity:.6}
 </style>
 </head>
 <body>
@@ -240,6 +246,8 @@ body{
   <div id="topbar">
     <div id="brand">graph<span>·</span>editor</div>
     <div id="user-badge">—</div>
+    <button id="logout" class="action" title="Создать нового пользователя. Старые графы останутся у прежнего пользователя.">Выйти</button>
+    <button id="reload" class="action">Обновить</button>
     <div id="tabs-wrap"><div id="tabs"></div></div>
     <div id="directed-toggle">
       <div class="sw"></div>
@@ -262,6 +270,17 @@ body{
             <span>Связи</span><span class="count" id="edges-count">0</span>
           </div>
           <div class="side-list" id="edges-list"></div>
+        </div>
+        <div class="side-section" id="section-masks">
+          <div class="side-head"><span>Маски · остовные деревья</span><span id="masks-count" class="count">0</span></div>
+          <form id="mask-form" class="mask-controls">
+            <label>Алгоритм<select id="mask-algorithm"><option value="bfs">BFS</option><option value="dfs">DFS</option><option value="mst">MST</option></select></label>
+            <label id="mask-start-label">Имя стартовой ноды<input id="mask-start" type="number" step="1" placeholder="Например, 1" required></label>
+            <button class="action" id="mask-create" type="submit">Создать маску</button>
+            <button class="action" id="mask-clear" type="button">Снять выделение</button>
+            <div class="mask-note" id="mask-note">Маски сохраняют выбранные рёбра и не пересчитываются при изменении графа.</div>
+          </form>
+          <div class="side-list" id="masks-list"></div>
         </div>
       </div>
     </div>
@@ -303,13 +322,17 @@ const API_BASE = 'http://localhost:8080/api/v1';
 const state = {
   userId: null,
   userName: 'Вася',
-  graphs: {},        // id -> {id,name,isDirected,nodes:{},edges:{},nextNum}
+  graphs: {},
   activeGraphId: null,
   pendingSource: null,
 };
 
 // ---------------- API ----------------
-async function api(method, path, body){
+async function api(method,path,body){
+  const write=method!=='GET';if(write)pendingWrites++;
+  try{return await requestAPI(method,path,body);}finally{if(write)pendingWrites--;}
+}
+async function requestAPI(method, path, body){
   let res;
   try{
     res = await fetch(API_BASE + path, {
@@ -325,7 +348,7 @@ async function api(method, path, body){
     let msg = 'Ошибка ' + res.status;
     try{ const j = await res.json(); if(j.error) msg = j.error; }catch(e){}
     toast(msg);
-    throw new Error(msg);
+    const error = new Error(msg); error.status = res.status; throw error;
   }
   if(res.status === 204) return null;
   return res.json();
@@ -340,71 +363,165 @@ function toast(msg){
   toastTimer = setTimeout(()=>el.classList.remove('show'), 3500);
 }
 
-// ---------------- init ----------------
-async function init(){
-  try{
-    const user = await api('POST','/users',{name: state.userName});
-    state.userId = user.id;
-    document.getElementById('user-badge').textContent = user.name;
-  }catch(e){
-    document.getElementById('user-badge').textContent = 'офлайн';
+// ---------------- session and graphs ----------------
+const USER_KEY = 'graph-editor.user-id';
+let sessionBusy = false, pendingWrites = 0;
+function graphModel(g){ return {id:g.id,name:g.name,isDirected:g.is_directed,nodes:{},edges:{},masks:{},activeMaskId:null,reservedNames:new Set()}; }
+function nodeModel(n){ return {id:n.id,name:Number(n.name),label:String(n.name),x:n.x,y:n.y}; }
+function edgeModel(e){ return {id:e.id,source:e.source_id,target:e.target_id,weight:e.weight}; }
+function busy(value){
+  sessionBusy=value;
+  document.getElementById('app').classList.toggle('busy',value);
+  document.getElementById('logout').disabled=value;
+  document.getElementById('reload').disabled=value;
+}
+async function loadMasks(g){
+  const summaries = await api('GET','/masks/graph/'+g.id);
+  const masks = await Promise.all((summaries || []).map(m=>api('GET','/masks/'+m.id)));
+  g.masks = Object.fromEntries(masks.map(m=>[m.id,{...m,members:m.members || []}]));
+  if(!g.masks[g.activeMaskId]) g.activeMaskId=null;
+}
+async function loadGraphs(){
+  const rows = await api('GET','/graphs/user/'+state.userId);
+  const graphs = {};
+  for(const row of rows || []){
+    const g=graphModel(row);
+    const [nodes,edges]=await Promise.all([api('GET','/nodes/graph/'+g.id),api('GET','/edges/graph/'+g.id),loadMasks(g)]);
+    g.nodes=Object.fromEntries((nodes || []).map(n=>[n.id,nodeModel(n)]));
+    g.edges=Object.fromEntries((edges || []).map(e=>[e.id,edgeModel(e)]));
+    graphs[g.id]=g;
   }
+  state.graphs=graphs;
+  state.activeGraphId=graphs[state.activeGraphId] ? state.activeGraphId : Object.keys(graphs)[0] || null;
+  state.pendingSource=null;
+  renderTabs();renderAll();
+}
+async function init(){
   bindGlobalEvents();
-  await createGraph();
+  document.getElementById('logout').onclick=()=>startSession(true);
+  document.getElementById('reload').onclick=()=>startSession(false);
+  document.getElementById('mask-form').onsubmit=e=>{e.preventDefault();createMask();};
+  document.getElementById('mask-algorithm').onchange=()=>{
+    const mst=document.getElementById('mask-algorithm').value==='mst';
+    document.getElementById('mask-start-label').hidden=mst;
+    document.getElementById('mask-start').required=!mst;
+    renderMasks();
+  };
+  document.getElementById('mask-clear').onclick=()=>{const g=currentGraph();if(g){g.activeMaskId=null;renderAll();}};
+  await startSession(false);
 }
-
-// ---------------- graphs ----------------
-async function createGraph(){
-  const n = Object.keys(state.graphs).length + 1;
-  let g;
+async function startSession(fresh){
+  if(sessionBusy || pendingWrites){toast('Дождись завершения текущей операции.');return;}
+  busy(true);
   try{
-    g = await api('POST','/graphs',{name:'Граф '+n, user_id: state.userId, is_directed:false});
-  }catch(e){ return; }
-  state.graphs[g.id] = {id:g.id, name:g.name, isDirected:g.is_directed, nodes:{}, edges:{}, nextNum:1};
-  state.activeGraphId = g.id;
-  renderTabs();
-  renderAll();
+    let user;
+    const saved=localStorage.getItem(USER_KEY);
+    if(!fresh && saved){
+      try{user=await api('GET','/users/'+encodeURIComponent(saved));}
+      catch(e){if(e.status!==404 && e.status!==400) throw e;}
+    }
+    if(!user) user=await api('POST','/users',{name:state.userName});
+    localStorage.setItem(USER_KEY,user.id);
+    if(state.userId!==user.id){state.graphs={};state.activeGraphId=null;state.pendingSource=null;renderTabs();renderAll();}
+    state.userId=user.id;
+    document.getElementById('user-badge').textContent=user.name;
+    document.getElementById('user-badge').title=user.id;
+    await loadGraphs();
+    if(!Object.keys(state.graphs).length) await createGraph(true);
+  }catch(e){toast('Не удалось загрузить данные. Нажми «Обновить». '+e.message);}
+  finally{busy(false);}
 }
-
+async function createGraph(duringInit=false){
+  if(!state.userId || (sessionBusy && duringInit!==true)) return;
+  pendingWrites++;
+  try{
+    const names=new Set(Object.values(state.graphs).map(g=>g.name));let n=1;while(names.has('Граф '+n)) n++;
+    const row=await api('POST','/graphs',{name:'Граф '+n,user_id:state.userId,is_directed:false});
+    state.graphs[row.id]=graphModel(row);state.activeGraphId=row.id;state.pendingSource=null;
+    renderTabs();renderAll();
+  }catch(e){}finally{pendingWrites--;}
+}
 function switchGraph(id){
-  state.activeGraphId = id;
-  state.pendingSource = null;
-  renderTabs();
-  renderAll();
+  state.activeGraphId=id;state.pendingSource=null;
+  document.getElementById('ctx-menu').style.display='none';
+  document.getElementById('overlay').style.display='none';
+  renderTabs();renderAll();
 }
-
 async function renameActiveGraph(newName){
-  const g = currentGraph(); if(!g) return;
-  try{
-    await api('PATCH','/graphs/'+g.id+'/rename', {new_name:newName});
-    g.name = newName;
-    renderTabs();
-  }catch(e){}
+  const g=currentGraph();if(!g)return;
+  try{await api('PATCH','/graphs/'+g.id+'/rename',{new_name:newName});g.name=newName;renderTabs();}catch(e){}
 }
-
 async function toggleDirected(){
-  const g = currentGraph(); if(!g) return;
+  const g=currentGraph();if(!g || g.toggling)return;
+  g.toggling=true;
+  try{const res=await api('PATCH','/graphs/'+g.id+'/toggle-directed');g.isDirected=res.is_directed;renderAll();}
+  catch(e){}finally{g.toggling=false;}
+}
+// ---------------- masks ----------------
+function connected(g){
+  const ids=Object.keys(g.nodes);if(!ids.length)return false;
+  const adj=Object.fromEntries(ids.map(id=>[id,[]]));
+  for(const e of Object.values(g.edges)){if(adj[e.source]&&adj[e.target]){adj[e.source].push(e.target);adj[e.target].push(e.source);}}
+  const seen=new Set([ids[0]]), stack=[ids[0]];
+  while(stack.length){for(const id of adj[stack.pop()])if(!seen.has(id)){seen.add(id);stack.push(id);}}
+  return seen.size===ids.length;
+}
+async function createMask(){
+  const g=currentGraph();if(!g || g.maskBusy)return;
+  const algorithm=document.getElementById('mask-algorithm').value;
+  if(algorithm==='mst' && g.isDirected){toast('MST доступен только для неориентированного графа.');return;}
+  if(algorithm==='mst' && !connected(g)){toast('Для MST нужен связный непустой граф.');return;}
+  const start=Object.values(g.nodes).find(n=>n.name===Number(document.getElementById('mask-start').value));
+  if(algorithm!=='mst'&&!start){toast('Введи имя существующей стартовой ноды.');return;}
+  if(algorithm!=='mst'&&Object.keys(g.nodes).length===1){toast('BFS/DFS на сервере пока требуют граф с рёбрами.');return;}
+  const name=algorithm==='mst' ? 'MST Mask; Start Node' : algorithm.toUpperCase()+' Mask; Start Node: '+start.name;
+  g.maskBusy=true;pendingWrites++;renderMasks();
   try{
-    const res = await api('PATCH','/graphs/'+g.id+'/toggle-directed');
-    g.isDirected = res.is_directed;
-    renderDirectedToggle();
-    renderEdges();
-    renderSidebar();
-  }catch(e){}
+    await loadMasks(g);
+    const existing=Object.values(g.masks).find(m=>algorithm==='mst' ? /^MST Mask(?:;|$)/.test(m.name) : m.name===name);
+    if(existing){g.activeMaskId=existing.id;toast('Такая маска уже существует — выделена существующая.');return;}
+    const body={graph_id:g.id};if(algorithm!=='mst')body.start_id=start.id;
+    const mask=await api('POST','/masks/'+algorithm,body);
+    g.masks[mask.id]={...mask,members:mask.members || []};g.activeMaskId=mask.id;
+  }catch(e){}finally{g.maskBusy=false;pendingWrites--;renderAll();}
+}
+async function deleteMask(g,id){
+  if(g.maskBusy)return;g.maskBusy=true;pendingWrites++;renderMasks();
+  try{await api('DELETE','/masks/'+id);delete g.masks[id];if(g.activeMaskId===id)g.activeMaskId=null;}
+  catch(e){}finally{g.maskBusy=false;pendingWrites--;renderAll();}
+}
+function renderMasks(){
+  const g=currentGraph(),list=document.getElementById('masks-list');list.replaceChildren();
+  const masks=g?Object.values(g.masks):[];
+  document.getElementById('masks-count').textContent=masks.length;
+  const algorithm=document.getElementById('mask-algorithm').value;
+  const directedMST=g && g.isDirected && algorithm==='mst';
+  document.getElementById('mask-create').disabled=!g||directedMST||g.maskBusy;
+  document.getElementById('mask-clear').disabled=!g||!g.activeMaskId;
+  document.getElementById('mask-note').textContent=directedMST?'MST доступен только для неориентированного графа.':g&&g.isDirected?'BFS/DFS идут по стрелкам и выделяют достижимую часть графа.':'Выбери маску для подсветки. После изменения графа маски не пересчитываются.';
+  if(!masks.length){const hint=document.createElement('div');hint.className='empty-hint';hint.textContent='Пока нет масок';list.appendChild(hint);}
+  for(const m of masks){
+    const row=document.createElement('div');row.className='side-item'+(g.activeMaskId===m.id?' selected':'');
+    const label=document.createElement('span');label.className='lbl';label.textContent=m.name;label.title=m.name;row.appendChild(label);
+    const count=document.createElement('span');count.className='sub';count.textContent=m.members.filter(id=>g.edges[id]).length+' р.';row.appendChild(count);
+    row.onclick=()=>{g.activeMaskId=g.activeMaskId===m.id?null:m.id;renderAll();};
+    const del=document.createElement('button');del.className='ico-btn';del.textContent='✕';del.title='Удалить маску';del.disabled=g.maskBusy;
+    del.onclick=e=>{e.stopPropagation();deleteMask(g,m.id);};row.appendChild(del);list.appendChild(row);
+  }
 }
 
 function currentGraph(){ return state.graphs[state.activeGraphId]; }
 
 // ---------------- nodes ----------------
+function nextNodeName(g){
+  const used=new Set([...Object.values(g.nodes).map(n=>n.name),...g.reservedNames]);
+  let name=1;while(used.has(name))name++;return name;
+}
 async function createNode(x,y){
-  const g = currentGraph(); if(!g) return;
-  const label = String(g.nextNum++);
-  let n;
-  try{
-    n = await api('POST','/nodes',{graph_id:g.id, meta_data:{label}, x, y});
-  }catch(e){ g.nextNum--; return; }
-  g.nodes[n.id] = {id:n.id, x:n.x, y:n.y, label};
-  renderAll();
+  const g=currentGraph();if(!g)return;
+  const name=nextNodeName(g);g.reservedNames.add(name);
+  try{const n=await api('POST','/nodes',{graph_id:g.id,name,meta_data:{},x,y});g.nodes[n.id]=nodeModel(n);renderAll();}
+  catch(e){}finally{g.reservedNames.delete(name);}
 }
 
 async function moveNode(nodeId, x, y){
@@ -471,13 +588,14 @@ function renderAll(){
   renderDirectedToggle();
   renderCanvasOnly();
   renderSidebar();
+  renderMasks();
 }
 
 function renderDirectedToggle(){
   const g = currentGraph();
   const btn = document.getElementById('directed-toggle');
   const label = document.getElementById('directed-label');
-  if(!g){ return; }
+  if(!g){btn.classList.remove('on');label.textContent='Нет графа';return;}
   btn.classList.toggle('on', g.isDirected);
   label.textContent = g.isDirected ? 'Ориентированный' : 'Неориентированный';
 }
@@ -544,7 +662,10 @@ function renderEdges(){
     line.setAttribute('x2', Number(b.x) - ux * inset);
     line.setAttribute('y2', Number(b.y) - uy * inset);
     line.setAttribute('stroke','#5eead4');
-    line.setAttribute('stroke-width', 2.5);
+    const mask=g.masks[g.activeMaskId];
+    const selected=!mask || mask.members.includes(e.id);
+    line.setAttribute('opacity',selected ? 1 : .15);
+    line.setAttribute('stroke-width',mask && selected ? 4 : 2.5);
     line.setAttribute('stroke-linecap','round');
     line.style.pointerEvents = 'stroke';
     if(g.isDirected) line.setAttribute('marker-end','url(#arrow)');
@@ -556,6 +677,7 @@ function renderEdges(){
     tag.className = 'edge-weight';
     tag.style.left = mx+'px'; tag.style.top = my+'px';
     tag.textContent = fmtWeight(e.weight);
+    tag.style.opacity=selected ? 1 : .2;
     document.getElementById('canvas').appendChild(tag);
   });
 }
@@ -622,46 +744,25 @@ function escapeHtml(s){
 }
 
 // ---------------- canvas interactions ----------------
-function bindNodeEvents(el, nodeId){
-  let dragging=false, moved=false, startX,startY, origX,origY;
-
-  el.addEventListener('mousedown', (ev)=>{
-    if(ev.button!==0) return;
-    ev.stopPropagation();
-    dragging=true; moved=false;
-    startX=ev.clientX; startY=ev.clientY;
-    const g=currentGraph(); const n=g.nodes[nodeId];
-    origX=n.x; origY=n.y;
-  });
-
-  el.addEventListener('contextmenu',(ev)=>{
-    ev.preventDefault(); ev.stopPropagation();
-    showNodeMenu(ev, nodeId);
-  });
-
-  document.addEventListener('mousemove',(ev)=>{
-    if(!dragging) return;
-    const dx=ev.clientX-startX, dy=ev.clientY-startY;
-    if(Math.abs(dx)>4||Math.abs(dy)>4){
-      moved=true;
-      el.classList.add('dragging');
-      const g=currentGraph(); const n=g.nodes[nodeId];
-      n.x = origX+dx; n.y = origY+dy;
-      renderCanvasOnly();
-    }
-  });
-
-  document.addEventListener('mouseup',(ev)=>{
-    if(!dragging) return;
-    dragging=false;
-    el.classList.remove('dragging');
-    if(moved){
-      const g=currentGraph(); const n=g.nodes[nodeId];
-      moveNode(nodeId, n.x, n.y);
-    } else {
-      onNodeClick(nodeId);
-    }
-  });
+function bindNodeEvents(el,nodeId){
+  el.oncontextmenu=ev=>{ev.preventDefault();ev.stopPropagation();showNodeMenu(ev,nodeId);};
+  el.onmousedown=ev=>{
+    if(ev.button!==0)return;ev.stopPropagation();
+    const g=currentGraph(),n=g.nodes[nodeId],sx=ev.clientX,sy=ev.clientY,ox=n.x,oy=n.y;
+    let moved=false;
+    const move=e=>{
+      if(currentGraph()!==g)return;
+      const dx=e.clientX-sx,dy=e.clientY-sy;
+      if(Math.abs(dx)>4||Math.abs(dy)>4)moved=true;
+      if(moved){n.x=ox+dx;n.y=oy+dy;renderCanvasOnly();}
+    };
+    const up=()=>{
+      document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);
+      if(currentGraph()!==g)return;
+      if(moved)moveNode(nodeId,n.x,n.y);else onNodeClick(nodeId);
+    };
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+  };
 }
 
 function onNodeClick(nodeId){

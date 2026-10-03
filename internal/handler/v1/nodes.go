@@ -33,6 +33,7 @@ func (nh *NodeHandler) Create(c *gin.Context) {
 		c.Request.Context(),
 		domain.Node{
 			GraphID:  req.GraphID,
+			Name:     req.Name,
 			Metadata: datatypes.JSON(req.Metadata),
 			X:        req.X,
 			Y:        req.Y,
@@ -48,6 +49,7 @@ func (nh *NodeHandler) Create(c *gin.Context) {
 			ID:       newNode.ID,
 			GraphID:  newNode.GraphID,
 			Metadata: json.RawMessage(newNode.Metadata),
+			Name:     newNode.Name,
 			X:        newNode.X,
 			Y:        newNode.Y,
 		},
@@ -75,6 +77,7 @@ func (nh *NodeHandler) GetNodeByID(c *gin.Context) {
 		dto.NodeResponse{
 			ID:       node.ID,
 			GraphID:  node.GraphID,
+			Name:     node.Name,
 			Metadata: json.RawMessage(node.Metadata),
 			X:        node.X,
 			Y:        node.Y,
@@ -133,4 +136,30 @@ func (nh *NodeHandler) ChangePosition(c *gin.Context) {
 			ID: id,
 		},
 	)
+}
+
+func (nh *NodeHandler) GetAllNodesByGraph(c *gin.Context) {
+	rawGraphID := c.Param("graph_id")
+	graphID, err := uuid.Parse(rawGraphID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	nodes, err := nh.service.GetAllNodesByGraph(c.Request.Context(), graphID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	res := make([]dto.NodeResponse, 0, len(nodes))
+	for _, node := range nodes {
+		res = append(res, dto.NodeResponse{
+			ID:       node.ID,
+			GraphID:  node.GraphID,
+			Metadata: json.RawMessage(node.Metadata),
+			Name:     node.Name,
+			X:        node.X,
+			Y:        node.Y,
+		})
+	}
+	c.JSON(http.StatusOK, res)
 }

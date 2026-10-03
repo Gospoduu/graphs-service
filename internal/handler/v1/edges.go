@@ -163,3 +163,32 @@ func (eh *EdgeHandler) ChangeWeight(c *gin.Context) {
 		},
 	)
 }
+
+func (eh *EdgeHandler) GetAllEdgesByGraph(c *gin.Context) {
+	rawGraphID := c.Param("graph_id")
+	graphID, err := uuid.Parse(rawGraphID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	edges, err := eh.service.GetAllEdgesByGraph(c.Request.Context(), graphID, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	res := make([]dto.EdgeResponse, 0, len(edges))
+	for _, edge := range edges {
+		res = append(res, dto.EdgeResponse{
+			ID:       edge.ID,
+			GraphID:  edge.GraphID,
+			SourceID: edge.SourceID,
+			TargetID: edge.TargetID,
+			Metadata: json.RawMessage(edge.Metadata),
+			Weight:   edge.Weight,
+		})
+	}
+	c.JSON(
+		http.StatusOK,
+		res,
+	)
+}

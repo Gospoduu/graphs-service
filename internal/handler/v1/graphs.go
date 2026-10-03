@@ -155,3 +155,30 @@ func (gh *GraphHandler) RenameGraph(c *gin.Context) {
 		},
 	)
 }
+
+func (gh *GraphHandler) GetAllGraphsByUser(c *gin.Context) {
+	rawID := c.Param("user_id")
+	userID, err := uuid.Parse(rawID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	graphs, err := gh.service.GetAllGraphsByUser(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	res := make([]dto.GraphResponse, 0, len(graphs))
+	for _, graph := range graphs {
+		res = append(res, dto.GraphResponse{
+			ID:         graph.ID,
+			Name:       graph.Name,
+			UserID:     graph.UserID,
+			IsDirected: graph.IsDirected,
+		})
+	}
+	c.JSON(
+		http.StatusOK,
+		res,
+	)
+}

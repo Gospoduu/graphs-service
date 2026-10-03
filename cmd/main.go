@@ -28,6 +28,8 @@ func main() {
 		&domain.Graph{},
 		&domain.Node{},
 		&domain.Edge{},
+		&domain.Mask{},
+		&domain.MaskMember{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -36,17 +38,29 @@ func main() {
 	graphRepo := repository.NewGraphRepository(db)
 	nodeRepo := repository.NewNodeRepository(db)
 	edgeRepo := repository.NewEdgeRepository(db)
+	maskRepo := repository.NewMaskRepository(db)
+	maskMemberRepo := repository.NewMaskMembersRepository(db)
 
 	userService := service.NewUserService(userRepo)
-	graphService := service.NewGraphService(graphRepo)
 	nodeService := service.NewNodeService(nodeRepo)
 	edgeService := service.NewEdgeService(edgeRepo)
+	graphService := service.NewGraphService(
+		graphRepo,
+		nodeService,
+		edgeService,
+	)
+	maskService := service.NewMaskService(
+		maskRepo,
+		maskMemberRepo,
+		graphService,
+	)
 
 	handlers := &v1.Handlers{
 		User:  v1.NewUserHandler(userService),
 		Graph: v1.NewGraphHandler(graphService),
 		Node:  v1.NewNodeHandler(nodeService),
 		Edge:  v1.NewEdgeHandler(edgeService),
+		Mask:  v1.NewMaskHandler(maskService),
 	}
 
 	router := gin.Default()

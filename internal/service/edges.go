@@ -10,11 +10,15 @@ import (
 
 type EdgeService struct {
 	*BaseService[domain.Edge, uuid.UUID]
+	repo domain.EdgeRepository
 }
 
-func NewEdgeService(repo domain.Repository[domain.Edge, uuid.UUID]) *EdgeService {
+func NewEdgeService(
+	repo domain.EdgeRepository,
+) *EdgeService {
 	return &EdgeService{
 		BaseService: NewBaseService[domain.Edge, uuid.UUID](repo),
+		repo:        repo,
 	}
 }
 
@@ -29,4 +33,7 @@ func (es *EdgeService) ToggleDirect(ctx context.Context, id uuid.UUID) (uuid.UUI
 		return uuid.Nil, uuid.Nil, err
 	}
 	return newSource, newTarget, nil
+}
+func (es *EdgeService) GetAllEdgesByGraph(ctx context.Context, graph uuid.UUID, sort bool) ([]domain.Edge, error) {
+	return es.repo.GetAllEdgesByGraph(ctx, graph, sort)
 }
