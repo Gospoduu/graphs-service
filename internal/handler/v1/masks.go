@@ -175,5 +175,5 @@ func (mh *MaskHandler) GetAllMasksByGraph(c *gin.Context) {
 			Name:    mask.Name,
 		})
 	}
-	c.JSON(http.StatusOK, []dto.MaskResponse(res))
+	c.JSON(http.StatusOK, res)
 }
