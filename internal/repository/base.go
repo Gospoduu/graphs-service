@@ -34,6 +34,17 @@ func (r *BaseRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
 	}
 	return entity, nil
 }
+func (r *BaseRepository[T, ID]) GetByIDs(ctx context.Context, ids ...ID) ([]T, error) {
+	entities := make([]T, 0)
+	if len(ids) == 0 {
+		return entities, nil
+	}
+
+	err := r.db.WithContext(ctx).
+		Where("id IN ?", ids).
+		Find(&entities).Error
+	return entities, err
+}
 
 func (r *BaseRepository[T, ID]) DeleteByID(ctx context.Context, id ID) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(new(T)).Error

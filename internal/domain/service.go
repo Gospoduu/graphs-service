@@ -38,7 +38,6 @@ type GraphService interface {
 	GetBFS(ctx context.Context, graph uuid.UUID, startNode uuid.UUID) (AdjacencyList, []uuid.UUID, error)
 	GetKruskalMST(ctx context.Context, graph uuid.UUID) (AdjacencyList, []uuid.UUID, error)
 	GetDFS(ctx context.Context, graph uuid.UUID, startNode uuid.UUID) (AdjacencyList, []uuid.UUID, error)
-	GetAdjacencyMatrix(ctx context.Context, graph uuid.UUID) ([]AdjacencyMatrixRow, error)
 }
 
 type NodeService interface {
@@ -57,4 +56,18 @@ type EdgeService interface {
 		graph uuid.UUID,
 		sort bool,
 	) ([]Edge, error)
+}
+
+type MaskFolderService interface {
+	Service[MaskFolder, uuid.UUID]
+
+	GetAllMasksByFolder(
+		ctx context.Context,
+		folder uuid.UUID,
+	) ([]Mask, error)
+
+	GetAllMaskFoldersByGraph(
+		ctx context.Context,
+		graph uuid.UUID,
+	)
 }

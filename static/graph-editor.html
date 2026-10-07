@@ -68,6 +68,7 @@
       </div>
       </div>
     </div>
+    <button id="matrix-open" class="action" type="button">Матрицы</button>
     <div id="zoom-controls" role="group" aria-label="Масштаб графа">
       <button id="zoom-out" class="action" aria-label="Отдалить">−</button>
       <button id="zoom-reset" class="action" title="Сбросить масштаб до 100%">100%</button>
@@ -91,6 +92,16 @@
 </div>
 
 <div id="toast"></div>
+<dialog id="matrix-dialog" aria-labelledby="matrix-title">
+  <div class="matrix-header"><h3 id="matrix-title">Матрицы</h3><button id="matrix-close" class="action" type="button" aria-label="Закрыть матрицу">✕</button></div>
+  <div class="matrix-tabs" role="group" aria-label="Тип матрицы">
+    <button type="button" data-matrix="adjacency" aria-pressed="true">Смежность</button>
+    <button type="button" data-matrix="weights" aria-pressed="false">Веса</button>
+    <button type="button" data-matrix="incidence" aria-pressed="false">Инцидентность</button>
+  </div>
+  <p id="matrix-description"></p>
+  <div id="matrix-content" tabindex="0" aria-describedby="matrix-description"></div>
+</dialog>
 
 <script src="./graph-editor.js"></script>
 </body>

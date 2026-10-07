@@ -56,7 +56,7 @@ function bindZoom(){
 
 const state = {
   userId: null,
-  userName: 'Вася',
+  userName: '-',
   graphs: {},
   activeGraphId: null,
   pendingSource: null,
@@ -132,6 +132,11 @@ async function loadGraphs(){
   renderTabs();renderAll();
 }
 async function init(){
+  document.getElementById('matrix-open').onclick=showAdjacencyMatrix;
+  document.getElementById('matrix-close').onclick=()=>document.getElementById('matrix-dialog').close();
+  document.querySelectorAll('[data-matrix]').forEach(button=>{
+    button.onclick=()=>{matrixMode=button.dataset.matrix;showAdjacencyMatrix();};
+  });
   bindZoom();
   bindGlobalEvents();
   document.getElementById('logout').onclick=()=>startSession(true);
@@ -264,6 +269,57 @@ function renderMasks(){
 
 function currentGraph(){ return state.graphs[state.activeGraphId]; }
 
+function buildAdjacencyMatrix(g){
+  const nodes=Object.values(g.nodes).sort((a,b)=>a.name-b.name || a.id.localeCompare(b.id));
+  const indices=new Map(nodes.map((node,i)=>[node.id,i]));
+  const cells=nodes.map(()=>nodes.map(()=>[]));
+  for(const edge of Object.values(g.edges)){
+    const source=indices.get(edge.source),target=indices.get(edge.target);
+    if(source===undefined || target===undefined)continue;
+    cells[source][target].push(edge.weight);
+    if(!g.isDirected && source!==target)cells[target][source].push(edge.weight);
+  }
+  return {nodes,cells};
+}
+let matrixMode='adjacency';
+function buildGraphMatrix(g,mode){
+  const {nodes,cells}=buildAdjacencyMatrix(g);
+  if(mode==='incidence'){
+    const edges=Object.values(g.edges).filter(e=>g.nodes[e.source]&&g.nodes[e.target]).sort((a,b)=>a.id.localeCompare(b.id));
+    return {nodes,columns:edges.map((e,i)=>({label:'e'+(i+1),title:g.nodes[e.source].name+(g.isDirected?' → ':' — ')+g.nodes[e.target].name+'; вес '+e.weight+'; '+e.id})),
+      values:nodes.map(n=>edges.map(e=>g.isDirected?Number(e.target===n.id)-Number(e.source===n.id):Number(e.source===n.id)+Number(e.target===n.id)))};
+  }
+  return {nodes,columns:nodes.map(n=>({label:n.name,title:'Нода '+n.name})),
+    values:cells.map(row=>row.map(weights=>mode==='weights'?(weights.length?Math.min(...weights):Infinity):Number(weights.length>0)))};
+}
+function showAdjacencyMatrix(){
+  const g=currentGraph();if(!g){toast('Сначала создай или выбери граф.');return;}
+  const {nodes,columns,values}=buildGraphMatrix(g,matrixMode);
+  const content=document.getElementById('matrix-content');content.replaceChildren();
+  const titles={adjacency:'Матрицы',weights:'Матрица весов',incidence:'Матрица инцидентности'};
+  document.getElementById('matrix-title').textContent=titles[matrixMode]+' · '+g.name;
+  document.querySelectorAll('[data-matrix]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.matrix===matrixMode)));
+  const descriptions={adjacency:'Строка — откуда, столбец — куда. 1 — есть ребро, 0 — нет.',weights:'Строка — откуда, столбец — куда. Вес ребра или inf, если связи нет (в том числе на диагонали без петли). Для параллельных рёбер показан минимальный вес.',incidence:'Строки — ноды, столбцы — рёбра. '+(g.isDirected?'−1 — начало ребра, 1 — конец, 0 — нода не участвует.':'1 — нода участвует в ребре, 0 — не участвует.')+' Наведи курсор на заголовок ребра, чтобы увидеть его концы.'};
+  document.getElementById('matrix-description').textContent=descriptions[matrixMode]+' Показан весь граф, независимо от маски.';
+  if(!nodes.length){content.textContent='В графе пока нет нод.';}
+  else{
+    const table=document.createElement('table');table.className='adjacency-matrix';
+    const head=table.createTHead().insertRow();
+    const corner=document.createElement('th');corner.textContent=matrixMode==='incidence'?'Нода / Ребро':'Из / В';head.appendChild(corner);
+    for(const column of columns){const th=document.createElement('th');th.scope='col';th.textContent=column.label;th.title=column.title;head.appendChild(th);}
+    const body=table.createTBody();
+    nodes.forEach((node,i)=>{
+      const row=body.insertRow(),th=document.createElement('th');th.scope='row';th.textContent=node.name;row.appendChild(th);
+      values[i].forEach((value,j)=>{
+        const td=row.insertCell();td.textContent=value===Infinity?'inf':String(value);
+        if(matrixMode==='weights'?value===Infinity:value===0)td.className='no-edge';
+        td.title='Нода '+node.name+'; '+columns[j].title+': '+td.textContent;
+      });
+    });content.appendChild(table);
+  }
+  const dialog=document.getElementById('matrix-dialog');if(!dialog.open)dialog.showModal();
+}
+
 // ---------------- nodes ----------------
 function nextNodeName(g){
   const used=new Set([...Object.values(g.nodes).map(n=>n.name),...g.reservedNames]);
@@ -299,13 +355,21 @@ async function deleteNode(nodeId){
 // ---------------- edges ----------------
 async function createEdge(sourceId,targetId){
   const g = currentGraph(); if(!g) return;
-  if(sourceId===targetId) return;
-  let e;
+  if(sourceId===targetId){toast('Нельзя соединить ноду с самой собой.');return;}
+  if(!g.nodes[sourceId] || !g.nodes[targetId]){toast('Обе ноды должны принадлежать текущему графу.');return;}
+  const sameEndpoints=e=>(e.source===sourceId && e.target===targetId) ||
+    (!g.isDirected && e.source===targetId && e.target===sourceId);
+  g.pendingEdges ??= new Set();
+  if(Object.values(g.edges).some(sameEndpoints) || [...g.pendingEdges].some(sameEndpoints)){
+    toast('Такая связь уже существует или создаётся. Вес можно изменить у существующей связи.');return;
+  }
+  const pending={source:sourceId,target:targetId};
+  g.pendingEdges.add(pending);
   try{
-    e = await api('POST','/edges',{graph_id:g.id, source_id:sourceId, target_id:targetId, weight:1});
-  }catch(err){ return; }
-  g.edges[e.id] = {id:e.id, source:e.source_id, target:e.target_id, weight:e.weight};
-  renderAll();
+    const e = await api('POST','/edges',{graph_id:g.id, source_id:sourceId, target_id:targetId, weight:1});
+    g.edges[e.id] = {id:e.id, source:e.source_id, target:e.target_id, weight:e.weight};
+    renderAll();
+  }catch(err){}finally{g.pendingEdges.delete(pending);}
 }
 
 async function deleteEdge(edgeId){
@@ -403,6 +467,7 @@ function renderEdges(){
   const mask=g.masks[g.activeMaskId];
   const color=mask ? maskColor(mask) : '#5eead4';
   document.querySelector('#arrow path').setAttribute('fill',color);
+  const directions=new Set(Object.values(g.edges).map(e=>e.source+':'+e.target));
   Object.values(g.edges).forEach(e=>{
     const a = g.nodes[e.source], b = g.nodes[e.target];
     if(!a||!b) return;
@@ -413,11 +478,24 @@ function renderEdges(){
     // Overlapping nodes leave no visible space for a straight edge.
     if(distance <= inset * 2) return;
     const ux = dx / distance, uy = dy / distance;
-    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-    line.setAttribute('x1', Number(a.x) + ux * inset);
-    line.setAttribute('y1', Number(a.y) + uy * inset);
-    line.setAttribute('x2', Number(b.x) - ux * inset);
-    line.setAttribute('y2', Number(b.y) - uy * inset);
+    const curved=directions.has(e.target+':'+e.source);
+    const line = document.createElementNS('http://www.w3.org/2000/svg',curved?'path':'line');
+    let mx=(Number(a.x)+Number(b.x))/2,my=(Number(a.y)+Number(b.y))/2;
+    if(curved){
+      // Reversing the edge also reverses the normal: opposite edges bend apart.
+      const bend=Math.min(55,distance*.22),cx=mx-uy*bend,cy=my+ux*bend;
+      const fromLength=Math.hypot(cx-a.x,cy-a.y),toLength=Math.hypot(cx-b.x,cy-b.y);
+      const x1=Number(a.x)+(cx-a.x)/fromLength*inset,y1=Number(a.y)+(cy-a.y)/fromLength*inset;
+      const x2=Number(b.x)+(cx-b.x)/toLength*inset,y2=Number(b.y)+(cy-b.y)/toLength*inset;
+      line.setAttribute('d',`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
+      line.setAttribute('fill','none');
+      mx=(x1+2*cx+x2)/4;my=(y1+2*cy+y2)/4;
+    }else{
+      line.setAttribute('x1', Number(a.x) + ux * inset);
+      line.setAttribute('y1', Number(a.y) + uy * inset);
+      line.setAttribute('x2', Number(b.x) - ux * inset);
+      line.setAttribute('y2', Number(b.y) - uy * inset);
+    }
     const selected=!mask || mask.members.includes(e.id);
     line.setAttribute('stroke',selected ? color : '#7d8590');
     line.setAttribute('opacity',selected ? 1 : .15);
@@ -428,7 +506,6 @@ function renderEdges(){
     line.oncontextmenu = (ev)=>{ ev.preventDefault(); showEdgeMenu(ev, e.id); };
     edgeLines.appendChild(line);
 
-    const mx = (a.x+b.x)/2, my=(a.y+b.y)/2;
     const tag = document.createElement('div');
     tag.className = 'edge-weight';
     tag.style.left = mx+'px'; tag.style.top = my+'px';

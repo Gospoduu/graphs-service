@@ -96,3 +96,35 @@ func (mmr *MaskMemberRepository) GetAllMembersByMask(ctx context.Context, mask u
 	}
 	return members, nil
 }
+
+type MaskFolderRepository struct {
+	*BaseRepository[domain.MaskFolder, uuid.UUID]
+}
+
+func (mfr *MaskFolderRepository) GetAllMaskFoldersByGraph(
+	ctx context.Context,
+	graph uuid.UUID,
+) ([]domain.MaskFolder, error) {
+	folders := make([]domain.MaskFolder, 0)
+	err := mfr.db.WithContext(ctx).Model(new(domain.MaskFolder)).Where("graph_id = ?", graph).Find(&folders).Error
+	if err != nil {
+		return nil, err
+	}
+	return folders, nil
+}
+
+type MaskFolderMemberRepository struct {
+	*BaseRepository[domain.MaskFolderMember, uuid.UUID]
+}
+
+func (mfmr *MaskFolderMemberRepository) GetAllMaskFolderMembersByFolder(
+	ctx context.Context,
+	folder uuid.UUID,
+) ([]domain.MaskFolderMember, error) {
+	members := make([]domain.MaskFolderMember, 0)
+	err := mfmr.db.WithContext(ctx).Model(new(domain.MaskFolderMember)).Where("folder_id = ?", folder).Find(&members).Error
+	if err != nil {
+		return nil, err
+	}
+	return members, nil
+}

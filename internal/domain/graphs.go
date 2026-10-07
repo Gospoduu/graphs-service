@@ -50,3 +50,18 @@ type MaskMember struct {
 	Mask Mask `json:"-" gorm:"foreignKey:MaskID;references:ID;constraint:OnDelete:CASCADE"`
 	Edge Edge `json:"-" gorm:"foreignKey:EdgeID;references:ID;constraint:OnDelete:CASCADE"`
 }
+
+type MaskFolder struct {
+	ID      uuid.UUID `json:"id" gorm:"primaryKey;default:gen_random_uuid()"`
+	GraphID uuid.UUID `json:"graph_id"`
+	Name    string    `json:"name"`
+}
+
+type MaskFolderMember struct {
+	ID       uuid.UUID `json:"id" gorm:"primaryKey;default:gen_random_uuid()"`
+	FolderID uuid.UUID `json:"folder_id"`
+	MaskID   uuid.UUID `json:"mask_id"`
+
+	Mask       Mask       `json:"-" gorm:"foreignKey:MaskID;references:ID;constraint:OnDelete:CASCADE"`
+	MaskFolder MaskFolder `json:"-" gorm:"foreignKey:FolderID;references:ID;constraint:OnDelete:CASCADE"`
+}

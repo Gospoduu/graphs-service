@@ -13,6 +13,7 @@ type IDConstraint interface {
 type Repository[T any, ID IDConstraint] interface {
 	Create(ctx context.Context, entity T) (T, error)
 	GetByID(ctx context.Context, id ID) (T, error)
+	GetByIDs(ctx context.Context, ids ...ID) ([]T, error)
 	DeleteByID(ctx context.Context, id ID) error
 	UpdateByID(ctx context.Context, id ID, entity T) error
 	PatchByID(ctx context.Context, id ID, fields map[string]any) error
@@ -53,4 +54,20 @@ type MaskMembersRepository interface {
 		ctx context.Context,
 		mask uuid.UUID,
 	) ([]MaskMember, error)
+}
+
+type MaskFolderRepository interface {
+	Repository[MaskFolder, uuid.UUID]
+	GetAllMaskFoldersByGraph(
+		ctx context.Context,
+		graph uuid.UUID,
+	) ([]MaskFolder, error)
+}
+
+type MaskFolderMemberRepository interface {
+	Repository[MaskFolderMember, uuid.UUID]
+	GetAllMaskFolderMembersByFolder(
+		ctx context.Context,
+		folder uuid.UUID,
+	) ([]MaskFolderMember, error)
 }

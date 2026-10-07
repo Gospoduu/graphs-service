@@ -20,6 +20,10 @@ func (s *BaseService[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
+func (s *BaseService[T, ID]) GetByIDs(ctx context.Context, ids ...ID) ([]T, error) {
+	return s.repo.GetByIDs(ctx, ids...)
+}
+
 func (s *BaseService[T, ID]) Create(ctx context.Context, entity T) (T, error) {
 	return s.repo.Create(ctx, entity)
 }

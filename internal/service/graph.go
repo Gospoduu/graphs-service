@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"sort"
 
 	"github.com/google/uuid"
 
@@ -312,80 +311,4 @@ func (gs *GraphService) GetKruskalMST(ctx context.Context, graph uuid.UUID) (Adj
 		}
 	}
 	return MSTree, treeEdges, nil
-}
-
-type AdjacencyMatrixCell struct {
-	NodeID  uuid.UUID `json:"node_id"`
-	Name    int       `json:"name"`
-	Weight  float64   `json:"weight"`
-	HasEdge bool      `json:"has_edge"`
-}
-
-type AdjacencyMatrixRow struct {
-	NodeID uuid.UUID             `json:"node_id"`
-	Name   int                   `json:"name"`
-	Cells  []AdjacencyMatrixCell `json:"cells"`
-}
-
-func (gs *GraphService) GetAdjacencyMatrix(
-	ctx context.Context,
-	graph uuid.UUID,
-) ([]AdjacencyMatrixRow, error) {
-	graphData, err := gs.GetByID(ctx, graph)
-	if err != nil {
-		return nil, err
-	}
-
-	nodes, err := gs.nodeService.GetAllNodesByGraph(ctx, graph)
-	if err != nil {
-		return nil, err
-	}
-
-	edges, err := gs.edgeService.GetAllEdgesByGraph(ctx, graph, false)
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].Name < nodes[j].Name
-	})
-
-	matrix := make([]AdjacencyMatrixRow, len(nodes))
-	indices := make(map[uuid.UUID]int, len(nodes))
-
-	// Строки и столбцы используют один порядок вершин.
-	for i, node := range nodes {
-		indices[node.ID] = i
-
-		matrix[i] = AdjacencyMatrixRow{
-			NodeID: node.ID,
-			Name:   node.Name,
-			Cells:  make([]AdjacencyMatrixCell, len(nodes)),
-		}
-
-		for j, target := range nodes {
-			matrix[i].Cells[j] = AdjacencyMatrixCell{
-				NodeID: target.ID,
-				Name:   target.Name,
-				// Weight: 0, HasEdge: false — нулевые значения.
-			}
-		}
-	}
-
-	for _, edge := range edges {
-		source, sourceOK := indices[edge.SourceID]
-		target, targetOK := indices[edge.TargetID]
-		if !sourceOK || !targetOK {
-			return nil, errors.New("edge endpoint does not belong to graph")
-		}
-
-		matrix[source].Cells[target].Weight = float64(edge.Weight)
-		matrix[source].Cells[target].HasEdge = true
-
-		if !graphData.IsDirected {
-			matrix[target].Cells[source].Weight = float64(edge.Weight)
-			matrix[target].Cells[source].HasEdge = true
-		}
-	}
-
-	return matrix, nil
 }
