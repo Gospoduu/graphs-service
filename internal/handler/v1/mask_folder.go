@@ -49,10 +49,11 @@ func (mh *MaskFolderHandler) GetMaskFolderByID(c *gin.Context) {
 	membersForResponse := make([]dto.MaskResponse, len(members))
 	for i, member := range members {
 		membersForResponse[i] = dto.MaskResponse{
-			ID:      member.ID,
-			GraphID: member.GraphID,
-			Name:    member.Name,
-			Members: nil,
+			ID:       member.ID,
+			GraphID:  member.GraphID,
+			Name:     member.Name,
+			Members:  nil,
+			Metadata: member.Metadata.String(),
 		}
 	}
 	c.JSON(

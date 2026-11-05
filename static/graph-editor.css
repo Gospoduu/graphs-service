@@ -180,7 +180,7 @@ body{
 .node:hover{box-shadow:0 0 0 3px rgba(242,184,75,.25),0 2px 10px rgba(0,0,0,.4);}
 .node.pending{box-shadow:0 0 0 4px rgba(94,234,212,.45);background:var(--teal);}
 .node.dragging{cursor:grabbing;}
-.node.mask-start{outline:3px solid var(--mask-color);outline-offset:2px;}
+.node.mask-start{outline:3px dashed var(--mask-color);outline-offset:2px;}
 .mask-swatch{width:10px;height:10px;flex:none;border-radius:50%;background:var(--mask-color);}
 #masks-list .side-item.selected{background:var(--bg-canvas);box-shadow:inset 3px 0 var(--mask-color);}
 
@@ -252,3 +252,74 @@ button,select,input{font:inherit} button{cursor:pointer} button:disabled{opacity
 .mask-controls{padding:10px 14px;display:grid;gap:8px}.mask-controls select,.mask-controls input{width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px}
 .side-section.collapsed .mask-controls{display:none}.side-item.selected{background:var(--teal-dim)}
 .mask-note{font-size:11px;color:var(--muted);line-height:1.5}#app.busy #body,#app.busy #tabs-wrap,#app.busy #directed-toggle{pointer-events:none;opacity:.6}
+
+#folder-controls{border-top:1px solid var(--line)}
+#folder-form,#folder-add-form{display:grid;gap:8px}
+#folder-members-controls:not([hidden]){display:grid;gap:8px}
+
+.mask-controls[hidden]{display:none}
+.explorer-tools{margin-left:auto;display:flex;align-items:center;gap:6px}
+.explorer-tools button{display:grid;place-items:center;width:26px;height:26px;font-size:22px}
+.explorer-head{gap:8px}.explorer-note{padding:6px 14px}
+.folder-toggle{background:none;border:0;color:var(--text);text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 0}
+#masks-list .nested{padding-left:34px}
+#masks-list .drop-target{background:var(--teal-dim);outline:1px solid var(--teal);outline-offset:-1px}
+#masks-list .dragging{opacity:.4}
+#masks-list .side-item:focus-visible{outline:1px solid var(--teal);outline-offset:-1px}
+
+.folder-inline-name{min-width:0;flex:1;width:100%;background:var(--bg);color:var(--text);border:1px solid var(--teal);border-radius:2px;padding:4px 6px;outline:none}
+.folder-draft{gap:7px}
+#eulerian-dialog{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:14px;width:min(720px,90vw);max-height:85vh;padding:20px;}
+#eulerian-dialog::backdrop{background:#0009;}
+#eulerian-content{overflow:auto;max-height:60vh;margin-top:12px;font-size:13px;line-height:1.55;}
+.eulerian-status{padding:10px 14px;border:1px dashed var(--panel-border);border-radius:10px;color:var(--muted);margin-bottom:12px;}
+.eulerian-status.ok{border-color:var(--teal-dim);color:var(--teal);}
+.eulerian-status.warn{border-color:var(--amber-dim);color:var(--amber);}
+.eulerian-status.err{border-color:var(--danger-dim);color:var(--danger);}
+.eulerian-section{margin-top:16px;}
+.eulerian-section h4{margin:0 0 8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;}
+.eulerian-list{margin:0;padding-left:20px;font-family:'JetBrains Mono',monospace;font-size:12.5px;}
+.eulerian-list li{padding:3px 0;}
+.eulerian-list li::marker{color:var(--muted);}
+.eulerian-note{color:var(--muted);font-size:12px;line-height:1.5;margin:0 0 10px;}
+.eulerian-hint{color:var(--muted);font-size:12px;line-height:1.5;margin-top:14px;border-top:1px solid var(--line);padding-top:10px;}
+.edge-weight.edge-order{
+  background:#1c222b;
+  border-color:var(--amber);
+  color:var(--amber);
+  font-weight:600;
+}
+.node.mask-path-step{
+  outline:2px solid var(--mask-step-color);
+  outline-offset:2px;
+}
+.node.mask-end{
+  outline:3px dashed var(--mask-color);
+  outline-offset:2px;
+}
+
+@keyframes edgeFlow {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -18; }
+}
+.edge-flow-anim {
+  animation: edgeFlow 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-flow-anim { animation: none; }
+}
+.algo-dropdown{position:relative;display:inline-block;}
+.algo-menu{
+  position:absolute;right:0;top:calc(100% + 6px);
+  background:#1c222b;border:1px solid var(--panel-border);
+  border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.5);
+  padding:5px;min-width:210px;z-index:120;display:grid;gap:2px;
+}
+.algo-menu[hidden]{display:none;}
+.explorer-tools .algo-menu button{
+  display:block;width:100%;height:auto;text-align:left;
+  background:none;border:none;color:var(--text);font-size:13px;
+  padding:8px 12px;border-radius:7px;cursor:pointer;font-family:inherit;
+  place-items:unset;
+}
+.explorer-tools .algo-menu button:hover{background:#262c36;}

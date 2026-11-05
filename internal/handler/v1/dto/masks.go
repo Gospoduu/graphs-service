@@ -5,10 +5,11 @@ import (
 )
 
 type MaskResponse struct {
-	ID      uuid.UUID   `json:"id"`
-	GraphID uuid.UUID   `json:"graph_id"`
-	Name    string      `json:"name"`
-	Members []uuid.UUID `json:"members"`
+	ID       uuid.UUID   `json:"id"`
+	GraphID  uuid.UUID   `json:"graph_id"`
+	Name     string      `json:"name"`
+	Members  []uuid.UUID `json:"members"`
+	Metadata string      `json:"metadata"`
 }
 
 type CreateMaskRequest struct {

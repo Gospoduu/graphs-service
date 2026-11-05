@@ -123,10 +123,11 @@ func (mh *MaskHandler) GetMaskByID(c *gin.Context) {
 	c.JSON(
 		http.StatusOK,
 		dto.MaskResponse{
-			ID:      mask.ID,
-			GraphID: mask.GraphID,
-			Name:    mask.Name,
-			Members: memberIDs,
+			ID:       mask.ID,
+			GraphID:  mask.GraphID,
+			Name:     mask.Name,
+			Members:  memberIDs,
+			Metadata: mask.Metadata.String(),
 		},
 	)
 }
@@ -170,9 +171,10 @@ func (mh *MaskHandler) GetAllMasksByGraph(c *gin.Context) {
 	res := make([]dto.MaskResponse, 0, len(masks))
 	for _, mask := range masks {
 		res = append(res, dto.MaskResponse{
-			ID:      mask.ID,
-			GraphID: mask.GraphID,
-			Name:    mask.Name,
+			ID:       mask.ID,
+			GraphID:  mask.GraphID,
+			Name:     mask.Name,
+			Metadata: mask.Metadata.String(),
 		})
 	}
 	c.JSON(http.StatusOK, res)

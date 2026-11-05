@@ -3,11 +3,12 @@ package v1
 import "github.com/gin-gonic/gin"
 
 type Handlers struct {
-	Graph *GraphHandler
-	Node  *NodeHandler
-	Edge  *EdgeHandler
-	User  *UserHandler
-	Mask  *MaskHandler
+	Graph      *GraphHandler
+	Node       *NodeHandler
+	Edge       *EdgeHandler
+	User       *UserHandler
+	Mask       *MaskHandler
+	MaskFolder *MaskFolderHandler
 }
 
 func RegisterRoutes(rg *gin.RouterGroup, h *Handlers) {
@@ -45,6 +46,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handlers) {
 		users.POST("", h.User.Create)
 		users.GET("/:id", h.User.GetUserByID)
 	}
+
 	masks := rg.Group("/masks")
 	{
 		masks.POST("/dfs", h.Mask.CreateDFSMask)
@@ -53,5 +55,16 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handlers) {
 		masks.GET("/:id", h.Mask.GetMaskByID)
 		masks.GET("/graph/:graph_id", h.Mask.GetAllMasksByGraph)
 		masks.DELETE("/:id", h.Mask.DeleteMaskByID)
+	}
+
+	maskFolders := rg.Group("/mask-folders")
+	{
+		maskFolders.POST("", h.MaskFolder.Create)
+		maskFolders.POST("/eulerian", h.MaskFolder.CreateEulerianMasks)
+		maskFolders.POST("/hamiltonian", h.MaskFolder.CreateHamiltonianMasks)
+		maskFolders.POST("/mask", h.MaskFolder.AddMaskToFolder)
+		maskFolders.GET("/:id", h.MaskFolder.GetMaskFolderByID)
+		maskFolders.GET("/graph/:graph_id", h.MaskFolder.GetAllMaskFoldersByGraph)
+		maskFolders.DELETE("/:id", h.MaskFolder.DeleteMaskFolderByID)
 	}
 }

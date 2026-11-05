@@ -61,6 +61,29 @@ const state = {
   activeGraphId: null,
   pendingSource: null,
 };
+function appendDirectionArrow(parent, x1, y1, x2, y2, color, t = 0.3){
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if(len < 1) return;
+  const ux = dx/len, uy = dy/len;
+  const cx = x1 + dx * t, cy = y1 + dy * t;
+  const size = 14;
+  const tipX = cx + ux*size, tipY = cy + uy*size;
+  const baseX = cx - ux*size*0.55, baseY = cy - uy*size*0.55;
+  const px = -uy, py = ux;
+  const w = size*0.65;
+  const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+  poly.setAttribute('points',
+    `${tipX.toFixed(1)},${tipY.toFixed(1)} ` +
+    `${(baseX+px*w).toFixed(1)},${(baseY+py*w).toFixed(1)} ` +
+    `${(baseX-px*w).toFixed(1)},${(baseY-py*w).toFixed(1)}`);
+  poly.setAttribute('fill', color);
+  poly.setAttribute('stroke', '#0e1116');
+  poly.setAttribute('stroke-width', '1.5');
+  poly.setAttribute('stroke-linejoin', 'round');
+  poly.style.pointerEvents = 'none';
+  parent.appendChild(poly);
+}
 
 // ---------------- API ----------------
 async function api(method,path,body){
@@ -80,10 +103,10 @@ async function requestAPI(method, path, body){
     throw e;
   }
   if(!res.ok){
-    let msg = 'Ошибка ' + res.status;
-    try{ const j = await res.json(); if(j.error) msg = j.error; }catch(e){}
+    let msg = 'Ошибка ' + res.status, body = null;
+    try{ body = await res.json(); if(body?.error) msg = body.error; }catch(e){}
     toast(msg);
-    const error = new Error(msg); error.status = res.status; throw error;
+    const error = new Error(msg); error.status = res.status; error.body = body; throw error;
   }
   if(res.status === 204) return null;
   return res.json();
@@ -101,7 +124,7 @@ function toast(msg){
 // ---------------- session and graphs ----------------
 const USER_KEY = 'graph-editor.user-id';
 let sessionBusy = false, pendingWrites = 0;
-function graphModel(g){ return {id:g.id,name:g.name,isDirected:g.is_directed,nodes:{},edges:{},masks:{},activeMaskId:null,reservedNames:new Set()}; }
+function graphModel(g){ return {id:g.id,name:g.name,isDirected:g.is_directed,nodes:{},edges:{},masks:{},folders:{},folderDraft:null,activeMaskId:null,reservedNames:new Set()}; }
 function nodeModel(n){ return {id:n.id,name:Number(n.name),label:String(n.name),x:n.x,y:n.y}; }
 function edgeModel(e){ return {id:e.id,source:e.source_id,target:e.target_id,weight:e.weight}; }
 function busy(value){
@@ -110,10 +133,78 @@ function busy(value){
   document.getElementById('logout').disabled=value;
   document.getElementById('reload').disabled=value;
 }
+// ---------------- mask metadata helpers ----------------
+function parseMetadata(value){
+  if(value == null) return null;
+  if(typeof value === 'object') return value;
+  try{ return JSON.parse(value); }catch{ return null; }
+}
+
+function normalizeMaskMembers(rawMembers){
+  if(!Array.isArray(rawMembers)) return [];
+  return rawMembers.map((mem, idx) => {          
+    if(typeof mem === 'string') return {edgeId: mem, serial: idx};
+    if(!mem || typeof mem !== 'object') return null;
+    const edgeId = mem.edge_id ?? mem.edgeId ?? mem.edgeID ?? null;
+    if(!edgeId) return null;
+    const meta = parseMetadata(mem.metadata) || {};
+    return {
+      edgeId,
+      serial: typeof meta.serial === 'number' ? meta.serial : idx,
+    };
+  }).filter(Boolean);
+}
+function normalizeMask(rawMask){
+  if(!rawMask) return null;
+  return {
+    ...rawMask,
+    metadata: parseMetadata(rawMask.metadata) || {},
+    members: normalizeMaskMembers(rawMask.members),
+  };
+}
+
+function maskIsPath(mask){
+  return !!(mask && mask.metadata && mask.metadata.is_path === true);
+}
+
+function maskHasEdge(mask, edgeId){
+  return !!mask && mask.members.some(m => m.edgeId === edgeId);
+}
+
+function maskEdgeSerial(mask, edgeId){
+  if(!mask) return null;
+  for(const m of mask.members){
+    if(m.edgeId === edgeId && typeof m.serial === 'number') return m.serial;
+  }
+  return null;
+}
+
+function maskEdgeCount(mask, edges){
+  if(!mask) return 0;
+  return mask.members.filter(m => edges[m.edgeId]).length;
+}
+// Восстанавливает направление пути по цепочке serial.
+// Возвращает {dirMap: edgeId->{from,to,step}, nodePositions: nodeId->step, startNodeId, endNodeId, total}.
+
+// Градиент цвета по step: сдвиг hue на +40° и lightness от 70% к 45%.
+function pathEdgeColor(baseColor, step, total){
+  const m = /hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%\s*\)/.exec(baseColor);
+  if(!m) return baseColor;
+  const h = parseFloat(m[1]), s = parseFloat(m[2]);
+  const t = total > 1 ? Math.max(0, Math.min(1, step / (total - 1))) : 0;
+  const hue = (h + 40 * t) % 360;
+  const light = 70 - 25 * t;
+  return `hsl(${hue.toFixed(1)} ${s}% ${light.toFixed(1)}%)`;
+}
+
+// Маленькая стрелка в середине ребра (для undirected path-масок).
+// Для кривых направление = (x2-x1, y2-y1) тоже валидно: в t=0.5 касательная
+// квадратичной Безье равна (x2-x1, y2-y1).
+
 async function loadMasks(g){
   const summaries = await api('GET','/masks/graph/'+g.id);
   const masks = await Promise.all((summaries || []).map(m=>api('GET','/masks/'+m.id)));
-  g.masks = Object.fromEntries(masks.map(m=>[m.id,{...m,members:m.members || []}]));
+  g.masks = Object.fromEntries(masks.map(m=>[m.id, normalizeMask(m)]));
   if(!g.masks[g.activeMaskId]) g.activeMaskId=null;
 }
 async function loadGraphs(){
@@ -121,7 +212,7 @@ async function loadGraphs(){
   const graphs = {};
   for(const row of rows || []){
     const g=graphModel(row);
-    const [nodes,edges]=await Promise.all([api('GET','/nodes/graph/'+g.id),api('GET','/edges/graph/'+g.id),loadMasks(g)]);
+    const [nodes,edges]=await Promise.all([api('GET','/nodes/graph/'+g.id),api('GET','/edges/graph/'+g.id),loadMasks(g),loadFolders(g)]);
     g.nodes=Object.fromEntries((nodes || []).map(n=>[n.id,nodeModel(n)]));
     g.edges=Object.fromEntries((edges || []).map(e=>[e.id,edgeModel(e)]));
     graphs[g.id]=g;
@@ -142,6 +233,15 @@ async function init(){
   document.getElementById('logout').onclick=()=>startSession(true);
   document.getElementById('reload').onclick=()=>startSession(false);
   document.getElementById('mask-form').onsubmit=e=>{e.preventDefault();createMask();};
+  document.getElementById('new-mask').onclick=()=>{
+    const section=document.getElementById('section-masks');
+    const form=document.getElementById('mask-form');
+    const open=form.hidden||section.classList.contains('collapsed');
+    section.classList.remove('collapsed');
+    form.hidden=!open;
+    document.getElementById('new-mask').setAttribute('aria-expanded',String(open));
+    if(open)document.getElementById('mask-algorithm').focus();
+  };
   document.getElementById('mask-algorithm').onchange=()=>{
     const mst=document.getElementById('mask-algorithm').value==='mst';
     document.getElementById('mask-start-label').hidden=mst;
@@ -149,7 +249,48 @@ async function init(){
     renderMasks();
   };
   document.getElementById('mask-clear').onclick=()=>{const g=currentGraph();if(g){g.activeMaskId=null;renderAll();}};
-  await startSession(false);
+  document.getElementById('new-folder').onclick=beginFolder;
+  const cancelOutside=e=>{
+    if(e.target.closest('.folder-draft'))return;
+    const g=currentGraph();
+    if(g?.folderDraft!=null&&!g.folderBusy){
+      g.folderDraft=null;
+      document.querySelector('.folder-draft')?.remove();
+      document.getElementById('new-folder').setAttribute('aria-expanded','false');
+    }
+  };
+  document.getElementById('eulerian-close').onclick = () => document.getElementById('eulerian-dialog').close();
+
+  const algoBtn = document.getElementById('new-path-algo');
+  const algoMenu = document.getElementById('path-algo-menu');
+  algoBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    const opening = algoMenu.hidden;
+    algoMenu.hidden = !opening;
+    algoBtn.setAttribute('aria-expanded', String(opening));
+  };
+  document.addEventListener('keydown', (ev) => {
+    if(ev.key === 'Escape' && !algoMenu.hidden){
+      algoMenu.hidden = true;
+      algoBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('click', (ev) => {
+    if(algoMenu.hidden) return;
+    if(algoMenu.contains(ev.target) || ev.target === algoBtn) return;
+    algoMenu.hidden = true;
+    algoBtn.setAttribute('aria-expanded', 'false');
+  });
+  algoMenu.querySelectorAll('[data-algo]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      algoMenu.hidden = true;
+      algoBtn.setAttribute('aria-expanded', 'false');
+      createPathMasks(btn.dataset.algo);
+    });
+  });
+    document.addEventListener('pointerdown',cancelOutside,true);
+    document.addEventListener('click',cancelOutside,true);
+    await startSession(false);
 }
 async function startSession(fresh){
   if(sessionBusy || pendingWrites){toast('Дождись завершения текущей операции.');return;}
@@ -199,6 +340,65 @@ async function toggleDirected(){
   try{const res=await api('PATCH','/graphs/'+g.id+'/toggle-directed');g.isDirected=res.is_directed;renderAll();}
   catch(e){}finally{g.toggling=false;}
 }
+// ---------------- mask folders ----------------
+async function loadFolders(g){
+  const summaries=await api('GET','/mask-folders/graph/'+g.id);
+  const folders=await Promise.all((summaries||[]).map(f=>api('GET','/mask-folders/'+f.id)));
+  g.folders=Object.fromEntries(folders.map(f=>[f.id,{...f,maskIds:(f.folder_members||[]).map(m=>m.id)}]));
+}
+function beginFolder(){
+  const g=currentGraph();if(!g||g.folderBusy||g.maskBusy)return;
+  document.getElementById('section-masks').classList.remove('collapsed');
+  document.getElementById('mask-form').hidden=true;
+  document.getElementById('new-mask').setAttribute('aria-expanded','false');
+  g.folderDraft='';renderMasks();document.getElementById('folder-name').focus();
+}
+async function createFolder(g){
+  if(g.folderBusy||g.maskBusy||g.folderDraft==null)return;
+  const name=g.folderDraft.trim();
+  if(!name){toast('Введи название папки.');return;}
+  g.folderBusy=true;pendingWrites++;renderMasks();
+  try{
+    const f=await api('POST','/mask-folders',{graph_id:g.id,name});
+    g.folders[f.id]={...f,maskIds:[],open:true};g.folderDraft=null;
+  }catch(e){}finally{
+    g.folderBusy=false;pendingWrites--;renderMasks();
+    if(currentGraph()===g&&g.folderDraft!=null)document.getElementById('folder-name')?.focus();
+  }
+}
+async function deleteFolder(g,folder){
+  if(g.folderBusy||g.maskBusy)return;
+  if(!confirm('Удалить папку «'+folder.name+'»? Маски сохранятся.'))return;
+  g.folderBusy=true;pendingWrites++;renderMasks();
+  try{await api('DELETE','/mask-folders/'+folder.id);delete g.folders[folder.id];}
+  catch(e){}finally{g.folderBusy=false;pendingWrites--;renderMasks();}
+}
+async function addMaskToFolder(g,folder,maskID){
+  if(g.folderBusy||g.maskBusy||!g.masks[maskID])return;
+  g.folderBusy=true;pendingWrites++;renderMasks();
+  try{
+    const latest=await api('GET','/mask-folders/'+folder.id);
+    folder.maskIds=(latest.folder_members||[]).map(m=>m.id);
+    if(folder.maskIds.includes(maskID)){toast('Маска уже есть в папке.');return;}
+    await api('POST','/mask-folders/mask',{folder_id:folder.id,mask_id:maskID});
+    folder.maskIds.push(maskID);folder.open=true;
+  }catch(e){}finally{g.folderBusy=false;pendingWrites--;renderMasks();}
+}
+function renderFolderDraft(g,list){
+  const row=document.createElement('form');row.className='side-item folder-draft';
+  const icon=document.createElement('span');icon.textContent='▸ 📁';icon.setAttribute('aria-hidden','true');
+  const input=document.createElement('input');input.id='folder-name';input.className='folder-inline-name';
+  input.maxLength=120;input.placeholder='Название папки';input.setAttribute('aria-label','Название новой папки');input.autocomplete='off';
+  input.value=g.folderDraft;input.disabled=!!g.folderBusy;
+  input.oninput=()=>{g.folderDraft=input.value;};
+  input.onkeydown=e=>{
+    e.stopPropagation();if(e.isComposing)return;
+    if(e.key==='Escape'){e.preventDefault();g.folderDraft=null;renderMasks();document.getElementById('new-folder').focus();}
+    if(e.key==='Enter'){e.preventDefault();createFolder(g);}
+  };
+  row.onsubmit=e=>{e.preventDefault();createFolder(g);};row.append(icon,input);list.appendChild(row);
+}
+
 // ---------------- masks ----------------
 function connected(g){
   const ids=Object.keys(g.nodes);if(!ids.length)return false;
@@ -208,8 +408,177 @@ function connected(g){
   while(stack.length){for(const id of adj[stack.pop()])if(!seen.has(id)){seen.add(id);stack.push(id);}}
   return seen.size===ids.length;
 }
+// ---------------- eulerian ----------------
+async function createPathMasks(algo){
+  const m = PATH_ALGO_META[algo] || PATH_ALGO_META.eulerian;
+  const endpoint = '/mask-folders/' + algo;
+  const g = currentGraph();
+  if(!g || g.maskBusy || g.folderBusy) return;
+  if(!Object.keys(g.nodes).length){toast('Сначала создай хотя бы одну ноду.');return;}
+  g.maskBusy = true; pendingWrites++; renderMasks();
+  try{
+    const res = await api('POST', endpoint, {graph_id: g.id});
+    if(res.folder){
+      await Promise.all([loadMasks(g), loadFolders(g)]);
+      const folder = g.folders[res.folder.id];
+      if(folder) folder.open = true;
+      g.folderDraft = null;
+      renderAll();
+      toast(res.masks_created === 1
+        ? 'Создана 1 маска ' + m.routeAdj + ' маршрута.'
+        : 'Создано масок: ' + res.masks_created + '.');
+      if(hasPathSuggestions(res.analysis)) showPathDialog(g, res, algo);
+    }else{
+      showPathDialog(g, res, algo);
+    }
+  }catch(e){
+    if(e.body?.folder){
+      try{ await Promise.all([loadMasks(g), loadFolders(g)]); }catch(_){}
+      const folder = g.folders[e.body.folder.id];
+      if(folder) folder.open = true;
+      renderAll();
+      toast('Сохранено масок: ' + (e.body.masks_created || 0) + ' (дальше ошибка).');
+      if(hasPathSuggestions(e.body.analysis)) showPathDialog(g, e.body, algo);
+    }
+  }
+  finally{ g.maskBusy = false; pendingWrites--; renderAll(); }
+}
+
+async function createEulerianMasks(){ return createPathMasks('eulerian'); }
+async function createHamiltonianMasks(){ return createPathMasks('hamiltonian'); }
+function tryBuildPathChain(g, ordered, startGuess){
+  let current = startGuess;
+  const dirMap = new Map();
+  const nodePositions = new Map();
+  for(let i=0;i<ordered.length;i++){
+    const edgeId = ordered[i].edgeId;
+    const edge = g.edges[edgeId];
+    if(!edge) return null;
+    let from, to;
+    if(edge.source === current){ from = edge.source; to = edge.target; }
+    else if(edge.target === current){ from = edge.target; to = edge.source; }
+    else return null; // эта гипотеза старта не сходится — пробуем другую
+    if(!nodePositions.has(from)) nodePositions.set(from, i);
+    dirMap.set(edgeId, {from, to, step: i});
+    current = to;
+  }
+  // Для цикла start === end: не затираем позицию 0 у старт-ноды.
+  if(!nodePositions.has(current)) nodePositions.set(current, ordered.length);
+  return {dirMap, nodePositions, startNodeId: startGuess, endNodeId: current};
+}
+
+function buildPathInfo(g, mask){
+  if(!g || !mask || !maskIsPath(mask)) return null;
+  const ordered = mask.members
+    .filter(m => typeof m.serial === 'number')
+    .sort((a, b) => a.serial - b.serial);
+  if(!ordered.length) return null;
+  const firstEdge = g.edges[ordered[0].edgeId];
+  if(!firstEdge) return null;
+
+  const chain = tryBuildPathChain(g, ordered, firstEdge.source)
+             || tryBuildPathChain(g, ordered, firstEdge.target);
+  if(!chain) return null; // данные реально несогласованы
+
+  return {...chain, total: ordered.length};
+}
+
+function hasPathSuggestions(a){
+  if(!a) return false;
+  return !!a.need_more_nodes
+    || (Array.isArray(a.path_edges) && a.path_edges.length > 0)
+    || (Array.isArray(a.cycle_edges) && a.cycle_edges.length > 0);
+}
+
+const PATH_ALGO_META = {
+  eulerian: {
+    dialogTitle: 'Эйлеровы маршруты',
+    routeAdj: 'эйлерова',   // для «Создана 1 маска эйлерова маршрута»
+    adjLabel: 'эйлеров',    // для «получится эйлеров цикл»
+    statusLabels: {
+      0: {label: 'Эйлеров цикл', cls: 'ok'},
+      1: {label: 'Эйлеров путь', cls: 'warn'},
+      2: {label: 'Граф не эйлеров', cls: 'err'},
+    },
+  },
+  hamiltonian: {
+    dialogTitle: 'Гамильтоновы маршруты',
+    routeAdj: 'гамильтонова',
+    adjLabel: 'гамильтонов',
+    statusLabels: {
+      0: {label: 'Гамильтонов цикл', cls: 'ok'},
+      1: {label: 'Гамильтонов путь', cls: 'warn'},
+      2: {label: 'Граф не гамильтонов', cls: 'err'},
+    },
+  },
+};
+
+function showPathDialog(g, res, algo){
+  const m = PATH_ALGO_META[algo] || PATH_ALGO_META.eulerian;
+  document.getElementById('eulerian-title').textContent = m.dialogTitle;
+
+  const content = document.getElementById('eulerian-content');
+  content.replaceChildren();
+  const analysis = res.analysis || {};
+  const kind = analysis.kind ?? 2;
+  const meta = m.statusLabels[kind] || {label: 'Результат', cls: ''};
+
+  const status = document.createElement('div');
+  status.className = 'eulerian-status ' + meta.cls;
+  status.textContent = meta.label
+    + (analysis.need_more_nodes ? ' — нужно больше нод' : '');
+  content.appendChild(status);
+
+  if(analysis.need_more_nodes){
+    const note = document.createElement('p');
+    note.className = 'eulerian-note';
+    note.textContent = 'Граф нельзя дополнить одним ребром: между концом и началом уже есть ребро в нужную сторону, либо граф пуст. Добавь ноды и рёбра и попробуй снова.';
+    content.appendChild(note);
+  }
+
+  const appendEdgeList = (title, edges) => {
+    if(!Array.isArray(edges) || !edges.length) return;
+    const section = document.createElement('div');
+    section.className = 'eulerian-section';
+    const h = document.createElement('h4');
+    h.textContent = title;
+    section.appendChild(h);
+    const ul = document.createElement('ul');
+    ul.className = 'eulerian-list';
+    for(const e of edges){
+      const from = g.nodes[e.source_id];
+      const to   = g.nodes[e.target_id];
+      const li = document.createElement('li');
+      li.textContent = (from ? from.label : '?') + ' → '
+        + (to ? to.label : '?') + ' (вес ' + fmtWeight(e.weight) + ')';
+      ul.appendChild(li);
+    }
+    section.appendChild(ul);
+    content.appendChild(section);
+  };
+
+  if(kind === 1){
+    appendEdgeList('Добавь ребро — получится ' + m.adjLabel + ' цикл', analysis.cycle_edges);
+    appendEdgeList('Или добавь рёбра для открытого пути', analysis.path_edges);
+  }else if(kind === 2){
+    appendEdgeList('Добавь рёбра — получится ' + m.adjLabel + ' цикл', analysis.cycle_edges);
+    appendEdgeList('Или добавь рёбра — получится ' + m.adjLabel + ' путь', analysis.path_edges);
+  }else if(kind === 0){
+    appendEdgeList('Предложения', analysis.cycle_edges);
+    appendEdgeList('Предложения', analysis.path_edges);
+  }
+
+  const hint = document.createElement('p');
+  hint.className = 'eulerian-hint';
+  hint.textContent = 'Предложения — это рёбра, которые можно добавить вручную и пересчитать маршруты. '
+    + 'Автоматически в БД они не сохраняются.';
+  content.appendChild(hint);
+
+  const dialog = document.getElementById('eulerian-dialog');
+  if(!dialog.open) dialog.showModal();
+}
 async function createMask(){
-  const g=currentGraph();if(!g || g.maskBusy)return;
+  const g=currentGraph();if(!g || g.maskBusy || g.folderBusy)return;
   const algorithm=document.getElementById('mask-algorithm').value;
   if(algorithm==='mst' && g.isDirected){toast('MST доступен только для неориентированного графа.');return;}
   if(algorithm==='mst' && !connected(g)){toast('Для MST нужен связный непустой граф.');return;}
@@ -224,12 +593,12 @@ async function createMask(){
     if(existing){g.activeMaskId=existing.id;toast('Такая маска уже существует — выделена существующая.');return;}
     const body={graph_id:g.id};if(algorithm!=='mst')body.start_id=start.id;
     const mask=await api('POST','/masks/'+algorithm,body);
-    g.masks[mask.id]={...mask,members:mask.members || []};g.activeMaskId=mask.id;
+    g.masks[mask.id]=normalizeMask(mask);g.activeMaskId=mask.id;
   }catch(e){}finally{g.maskBusy=false;pendingWrites--;renderAll();}
 }
 async function deleteMask(g,id){
-  if(g.maskBusy)return;g.maskBusy=true;pendingWrites++;renderMasks();
-  try{await api('DELETE','/masks/'+id);delete g.masks[id];if(g.activeMaskId===id)g.activeMaskId=null;}
+  if(g.maskBusy||g.folderBusy)return;g.maskBusy=true;pendingWrites++;renderMasks();
+  try{await api('DELETE','/masks/'+id);delete g.masks[id];for(const folder of Object.values(g.folders))folder.maskIds=folder.maskIds.filter(mid=>mid!==id);if(g.activeMaskId===id)g.activeMaskId=null;}
   catch(e){}finally{g.maskBusy=false;pendingWrites--;renderAll();}
 }
 function maskColor(mask){
@@ -239,32 +608,74 @@ function maskColor(mask){
   return `hsl(${(hash>>>0)/4294967296*360} 78% 68%)`;
 }
 function maskStartNode(g,mask){
-  if(!mask)return null;
-  // Current API exposes the start node's numeric name in the mask title.
+  if(!mask) return null;
+  if(maskIsPath(mask)){
+    const info = buildPathInfo(g, mask);
+    return info ? (g.nodes[info.startNodeId] || null) : null;
+  }
   const match = /^(?:BFS|DFS) Mask; Start Node: (-?\d+)(?:; Is Directed: (?:true|false))?$/.exec(mask.name);
-  if(!match)return null;
+  if(!match) return null;
   return Object.values(g.nodes).find(n=>n.name===Number(match[1])) || null;
 }
 function renderMasks(){
-  const g=currentGraph(),list=document.getElementById('masks-list');list.replaceChildren();
+  const g=currentGraph(),list=document.getElementById('masks-list');
+  const previous=document.getElementById('folder-name');
+  const selection=previous&&document.activeElement===previous?[previous.selectionStart,previous.selectionEnd]:null;
+  list.replaceChildren();
+  document.getElementById('new-folder').setAttribute('aria-expanded',String(g?.folderDraft!=null));
+  if(g?.folderDraft!=null){
+    renderFolderDraft(g,list);
+    const input=document.getElementById('folder-name');
+    if(selection&&!input.disabled){input.focus();input.setSelectionRange(...selection);}
+  }
+  for (const id of ['new-folder','new-mask','new-path-algo'])
+    document.getElementById(id).disabled = !g || g.maskBusy || g.folderBusy;
   const masks=g?Object.values(g.masks):[];
   document.getElementById('masks-count').textContent=masks.length;
   const algorithm=document.getElementById('mask-algorithm').value;
   const directedMST=g && g.isDirected && algorithm==='mst';
-  document.getElementById('mask-create').disabled=!g||directedMST||g.maskBusy;
+  document.getElementById('mask-create').disabled=!g||directedMST||g.maskBusy||g.folderBusy;
   document.getElementById('mask-clear').disabled=!g||!g.activeMaskId;
   document.getElementById('mask-note').textContent=directedMST?'MST доступен только для неориентированного графа.':g&&g.isDirected?'BFS/DFS идут по стрелкам и выделяют достижимую часть графа.':'Выбери маску для подсветки. После изменения графа маски не пересчитываются.';
-  if(!masks.length){const hint=document.createElement('div');hint.className='empty-hint';hint.textContent='Пока нет масок';list.appendChild(hint);}
-  for(const m of masks){
+  if(!masks.length&&!Object.keys(g?.folders||{}).length&&g?.folderDraft==null){const hint=document.createElement('div');hint.className='empty-hint';hint.textContent='Пока нет масок';list.appendChild(hint);}
+  function maskRow(m,parent,nested=false){
     const row=document.createElement('div');row.className='side-item'+(g.activeMaskId===m.id?' selected':'');
+    row.classList.toggle('nested',nested);row.draggable=!(g.maskBusy||g.folderBusy);row.tabIndex=0;
+    row.ondragstart=e=>{e.dataTransfer.setData('application/x-graph-mask',JSON.stringify({graphID:g.id,maskID:m.id}));e.dataTransfer.effectAllowed='copy';};
+    row.onkeydown=e=>{if(e.target===row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();row.click();}};
     row.style.setProperty('--mask-color',maskColor(m));
     const swatch=document.createElement('span');swatch.className='mask-swatch';swatch.setAttribute('aria-hidden','true');row.appendChild(swatch);
     const label=document.createElement('span');label.className='lbl';label.textContent=m.name;label.title=m.name;row.appendChild(label);
-    const count=document.createElement('span');count.className='sub';count.textContent=m.members.filter(id=>g.edges[id]).length+' р.';row.appendChild(count);
+    const count=document.createElement('span');count.className='sub';
+count.textContent = maskEdgeCount(m, g.edges) + ' р.' + (maskIsPath(m) ? ' · путь' : '');
+row.appendChild(count);
     row.onclick=()=>{g.activeMaskId=g.activeMaskId===m.id?null:m.id;renderAll();};
-    const del=document.createElement('button');del.className='ico-btn';del.textContent='✕';del.title='Удалить маску';del.disabled=g.maskBusy;
-    del.onclick=e=>{e.stopPropagation();deleteMask(g,m.id);};row.appendChild(del);list.appendChild(row);
+    const del=document.createElement('button');del.className='ico-btn';del.textContent='✕';del.title='Удалить маску';del.disabled=g.maskBusy||g.folderBusy;
+    del.onclick=e=>{e.stopPropagation();deleteMask(g,m.id);};row.appendChild(del);parent.appendChild(row);
   }
+  if(!g)return;
+  const contained=new Set();
+  for(const folder of Object.values(g.folders)){
+    folder.maskIds.forEach(id=>contained.add(id));
+    const group=document.createElement('div'),row=document.createElement('div');row.className='side-item folder-row';
+    const toggle=document.createElement('button');toggle.className='folder-toggle';toggle.textContent=(folder.open?'▾':'▸')+' 📁 '+folder.name;
+    toggle.title=folder.name;toggle.setAttribute('aria-expanded',String(!!folder.open));toggle.onclick=()=>{folder.open=!folder.open;renderMasks();};row.appendChild(toggle);
+    const del=document.createElement('button');del.className='ico-btn';del.textContent='✕';del.title='Удалить папку';del.disabled=g.maskBusy||g.folderBusy;del.onclick=()=>deleteFolder(g,folder);row.appendChild(del);
+    group.ondragover=e=>{if(!g.maskBusy&&!g.folderBusy&&[...e.dataTransfer.types].includes('application/x-graph-mask')){e.preventDefault();e.dataTransfer.dropEffect='copy';row.classList.add('drop-target');}};
+    group.ondragleave=e=>{if(!group.contains(e.relatedTarget))row.classList.remove('drop-target');};
+    group.ondrop=e=>{
+      e.preventDefault();e.stopPropagation();row.classList.remove('drop-target');
+      try{const data=JSON.parse(e.dataTransfer.getData('application/x-graph-mask'));if(data.graphID===g.id)addMaskToFolder(g,folder,data.maskID);}catch(error){}
+    };
+    group.appendChild(row);
+    if(folder.open){
+      const members=masks.filter(m=>folder.maskIds.includes(m.id));
+      for(const m of members)maskRow(m,group,true);
+      if(!members.length){const hint=document.createElement('div');hint.className='empty-hint nested';hint.textContent='Перетащи маску сюда';group.appendChild(hint);}
+    }
+    list.appendChild(group);
+  }
+  for(const m of masks)if(!contained.has(m.id))maskRow(m,list);
 }
 
 function currentGraph(){ return state.graphs[state.activeGraphId]; }
@@ -355,21 +766,13 @@ async function deleteNode(nodeId){
 // ---------------- edges ----------------
 async function createEdge(sourceId,targetId){
   const g = currentGraph(); if(!g) return;
-  if(sourceId===targetId){toast('Нельзя соединить ноду с самой собой.');return;}
-  if(!g.nodes[sourceId] || !g.nodes[targetId]){toast('Обе ноды должны принадлежать текущему графу.');return;}
-  const sameEndpoints=e=>(e.source===sourceId && e.target===targetId) ||
-    (!g.isDirected && e.source===targetId && e.target===sourceId);
-  g.pendingEdges ??= new Set();
-  if(Object.values(g.edges).some(sameEndpoints) || [...g.pendingEdges].some(sameEndpoints)){
-    toast('Такая связь уже существует или создаётся. Вес можно изменить у существующей связи.');return;
-  }
-  const pending={source:sourceId,target:targetId};
-  g.pendingEdges.add(pending);
+  if(sourceId===targetId) return;
+  let e;
   try{
-    const e = await api('POST','/edges',{graph_id:g.id, source_id:sourceId, target_id:targetId, weight:1});
-    g.edges[e.id] = {id:e.id, source:e.source_id, target:e.target_id, weight:e.weight};
-    renderAll();
-  }catch(err){}finally{g.pendingEdges.delete(pending);}
+    e = await api('POST','/edges',{graph_id:g.id, source_id:sourceId, target_id:targetId, weight:1});
+  }catch(err){ return; }
+  g.edges[e.id] = {id:e.id, source:e.source_id, target:e.target_id, weight:e.weight};
+  renderAll();
 }
 
 async function deleteEdge(edgeId){
@@ -443,11 +846,29 @@ function renderCanvasOnly(){
   document.querySelectorAll('.node').forEach(el=>el.remove());
   document.getElementById('empty-hint').style.display = g && Object.keys(g.nodes).length ? 'none':'block';
   if(!g) { renderEdges(); return; }
-  const mask=g.masks[g.activeMaskId],start=maskStartNode(g,mask);
+  const mask=g.masks[g.activeMaskId];
+  const pathInfo = maskIsPath(mask) ? buildPathInfo(g, mask) : null;
+  const isCycle = pathInfo && pathInfo.startNodeId === pathInfo.endNodeId;
+  const startNode = pathInfo ? g.nodes[pathInfo.startNodeId] : maskStartNode(g, mask);
+  const endNode = (pathInfo && !isCycle) ? g.nodes[pathInfo.endNodeId] : null;
   Object.values(g.nodes).forEach(n=>{
     const el = document.createElement('div');
     el.className = 'node' + (state.pendingSource===n.id ? ' pending':'');
-    if(start && start.id===n.id){el.classList.add('mask-start');el.style.setProperty('--mask-color',maskColor(mask));el.title='Стартовая нода '+n.name;}
+    if(startNode && startNode.id===n.id){
+      el.classList.add('mask-start');
+      el.style.setProperty('--mask-color',maskColor(mask));
+      el.title = isCycle ? 'Начало цикла, нода '+n.name : 'Старт пути, нода '+n.name;
+    } else if(pathInfo && pathInfo.nodePositions.has(n.id)){
+      const pos = pathInfo.nodePositions.get(n.id);
+      el.classList.add('mask-path-step');
+      el.style.setProperty('--mask-step-color', pathEdgeColor(maskColor(mask), pos, pathInfo.total));
+      el.title = 'Шаг '+pos+' в пути, нода '+n.name;
+    }
+    if(endNode && endNode.id===n.id){
+      el.classList.add('mask-end');
+      el.style.setProperty('--mask-color',maskColor(mask));
+      el.title = 'Конец пути, нода '+n.name;
+    }
     el.style.left = n.x+'px'; el.style.top = n.y+'px';
     el.textContent = n.label;
     el.dataset.id = n.id;
@@ -460,58 +881,124 @@ function renderCanvasOnly(){
 function renderEdges(){
   const g = currentGraph();
   const edgeLines = document.getElementById('edge-lines');
-  // Preserve <defs>: clear only the rendered edges.
   edgeLines.replaceChildren();
   document.querySelectorAll('.edge-weight').forEach(el=>el.remove());
   if(!g) return;
   const mask=g.masks[g.activeMaskId];
-  const color=mask ? maskColor(mask) : '#5eead4';
-  document.querySelector('#arrow path').setAttribute('fill',color);
+  const isPathMask=maskIsPath(mask);
+  const baseColor=mask ? maskColor(mask) : '#5eead4';
+  const pathInfo = isPathMask ? buildPathInfo(g, mask) : null;
+  document.querySelector('#arrow path').setAttribute('fill',baseColor);
   const directions=new Set(Object.values(g.edges).map(e=>e.source+':'+e.target));
   Object.values(g.edges).forEach(e=>{
     const a = g.nodes[e.source], b = g.nodes[e.target];
     if(!a||!b) return;
     const dx = b.x - a.x, dy = b.y - a.y;
     const distance = Math.hypot(dx, dy);
-    const nodeRadius = 26; // .node is 52px wide, including its border.
+    const nodeRadius = 26;
     const inset = nodeRadius + 3;
-    // Overlapping nodes leave no visible space for a straight edge.
     if(distance <= inset * 2) return;
     const ux = dx / distance, uy = dy / distance;
     const curved=directions.has(e.target+':'+e.source);
     const line = document.createElementNS('http://www.w3.org/2000/svg',curved?'path':'line');
-    let mx=(Number(a.x)+Number(b.x))/2,my=(Number(a.y)+Number(b.y))/2;
+    let x1, y1, x2, y2, mx, my, cx = 0, cy = 0;
     if(curved){
-      // Reversing the edge also reverses the normal: opposite edges bend apart.
-      const bend=Math.min(55,distance*.22),cx=mx-uy*bend,cy=my+ux*bend;
+      const bend=Math.min(55,distance*.22);
+      cx=(Number(a.x)+Number(b.x))/2-uy*bend;
+      cy=(Number(a.y)+Number(b.y))/2+ux*bend;
       const fromLength=Math.hypot(cx-a.x,cy-a.y),toLength=Math.hypot(cx-b.x,cy-b.y);
-      const x1=Number(a.x)+(cx-a.x)/fromLength*inset,y1=Number(a.y)+(cy-a.y)/fromLength*inset;
-      const x2=Number(b.x)+(cx-b.x)/toLength*inset,y2=Number(b.y)+(cy-b.y)/toLength*inset;
+      x1=Number(a.x)+(cx-a.x)/fromLength*inset;
+      y1=Number(a.y)+(cy-a.y)/fromLength*inset;
+      x2=Number(b.x)+(cx-b.x)/toLength*inset;
+      y2=Number(b.y)+(cy-b.y)/toLength*inset;
       line.setAttribute('d',`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
       line.setAttribute('fill','none');
-      mx=(x1+2*cx+x2)/4;my=(y1+2*cy+y2)/4;
+      mx=(x1+2*cx+x2)/4;
+      my=(y1+2*cy+y2)/4;
     }else{
-      line.setAttribute('x1', Number(a.x) + ux * inset);
-      line.setAttribute('y1', Number(a.y) + uy * inset);
-      line.setAttribute('x2', Number(b.x) - ux * inset);
-      line.setAttribute('y2', Number(b.y) - uy * inset);
+      x1 = Number(a.x) + ux * inset;
+      y1 = Number(a.y) + uy * inset;
+      x2 = Number(b.x) - ux * inset;
+      y2 = Number(b.y) - uy * inset;
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2);
+      line.setAttribute('y2', y2);
+      mx = (Number(a.x) + Number(b.x)) / 2;
+      my = (Number(a.y) + Number(b.y)) / 2;
     }
-    const selected=!mask || mask.members.includes(e.id);
-    line.setAttribute('stroke',selected ? color : '#7d8590');
+    const selected=!mask || maskHasEdge(mask, e.id);
+    const dir = pathInfo ? pathInfo.dirMap.get(e.id) : null;
+    const edgeColor = dir
+      ? pathEdgeColor(baseColor, dir.step, pathInfo.total)
+      : (selected ? baseColor : '#7d8590');
+
+    // Утолщение по step: градиент считывается не только цветом, но и толщиной.
+    const baseStroke = mask && selected ? 2.5 : 2.5;
+    const strokeW = dir
+      ? baseStroke + (dir.step / Math.max(1, pathInfo.total - 1)) * 2
+      : baseStroke;
+
+    // Для стрелок и flow используем направление обхода пути (dir), а не хранение в БД.
+    // Если dir.from не совпадает с e.source — значит обход идёт против сохранённого направления.
+    const forward = !dir || dir.from === e.source;
+    const ax1 = forward ? x1 : x2;
+    const ay1 = forward ? y1 : y2;
+    const ax2 = forward ? x2 : x1;
+    const ay2 = forward ? y2 : y1;
+
+    line.setAttribute('stroke', edgeColor);
     line.setAttribute('opacity',selected ? 1 : .15);
-    line.setAttribute('stroke-width',mask && selected ? 4 : 2.5);
+    line.setAttribute('stroke-width', strokeW.toFixed(2));
     line.setAttribute('stroke-linecap','round');
     line.style.pointerEvents = 'stroke';
     if(g.isDirected) line.setAttribute('marker-end','url(#arrow)');
     line.oncontextmenu = (ev)=>{ ev.preventDefault(); showEdgeMenu(ev, e.id); };
     edgeLines.appendChild(line);
 
+    // Flow-слой: анимированный пунктир поверх сплошной линии показывает направление обхода.
+    if(isPathMask && selected && dir){
+      const flow = document.createElementNS('http://www.w3.org/2000/svg', curved ? 'path' : 'line');
+      if(curved){
+        // Кривая Безье симметрична относительно разворота: B'(t) = B(1-t).
+        // cx,cy оставляем как есть, меняем только концы.
+        flow.setAttribute('d', `M ${ax1} ${ay1} Q ${cx} ${cy} ${ax2} ${ay2}`);
+        flow.setAttribute('fill', 'none');
+      } else {
+        flow.setAttribute('x1', ax1);
+        flow.setAttribute('y1', ay1);
+        flow.setAttribute('x2', ax2);
+        flow.setAttribute('y2', ay2);
+      }
+      flow.setAttribute('stroke', '#ffffff');
+      flow.setAttribute('stroke-linecap', 'round');
+      flow.setAttribute('stroke', 'rgba(255,255,255,0.95)');
+      flow.setAttribute('stroke-width', Math.max(2.5, strokeW * 0.6).toFixed(2));
+      flow.setAttribute('stroke-dasharray', '4 14');
+      flow.setAttribute('opacity', '1');
+      flow.classList.add('edge-flow-anim');
+      edgeLines.appendChild(flow);
+    }
+
+    // Стрелка в направлении обхода (t=0.3, чтобы не наезжать на бейдж в центре).
+    if(isPathMask && selected && dir){
+      appendDirectionArrow(edgeLines, ax1, ay1, ax2, ay2, edgeColor, 0.3);
+    }
+
     const tag = document.createElement('div');
     tag.className = 'edge-weight';
-    tag.style.left = mx+'px'; tag.style.top = my+'px';
-    tag.textContent = fmtWeight(e.weight);
-    tag.style.color=selected ? color : '#7d8590';
-    tag.style.opacity=selected ? 1 : .2;
+    tag.style.left = mx+'px';
+    tag.style.top = my+'px';
+    if(dir){
+      tag.textContent = '#' + (dir.step + 1) + ' · ' + fmtWeight(e.weight);
+      tag.classList.add('edge-order');
+      tag.style.borderColor = edgeColor;
+      tag.style.color = edgeColor;
+    }else{
+      tag.textContent = fmtWeight(e.weight);
+      tag.style.color = selected ? baseColor : '#7d8590';
+    }
+    tag.style.opacity = selected ? 1 : .2;
     document.getElementById('canvas').appendChild(tag);
   });
 }
@@ -635,7 +1122,10 @@ function bindGlobalEvents(){
   };
 
   document.querySelectorAll('.side-head').forEach(h=>{
-    h.onclick = ()=>h.closest('.side-section').classList.toggle('collapsed');
+    h.onclick = e=>{
+      if(e.target.closest('button,input,select,textarea,a'))return;
+      h.closest('.side-section').classList.toggle('collapsed');
+    };
   });
 
   document.addEventListener('click', (ev)=>{

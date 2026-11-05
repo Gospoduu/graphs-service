@@ -101,6 +101,12 @@ type MaskFolderRepository struct {
 	*BaseRepository[domain.MaskFolder, uuid.UUID]
 }
 
+func NewMaskFolderRepository(db *gorm.DB) *MaskFolderRepository {
+	return &MaskFolderRepository{
+		BaseRepository: NewBaseRepository[domain.MaskFolder, uuid.UUID](db),
+	}
+}
+
 func (mfr *MaskFolderRepository) GetAllMaskFoldersByGraph(
 	ctx context.Context,
 	graph uuid.UUID,
@@ -115,6 +121,12 @@ func (mfr *MaskFolderRepository) GetAllMaskFoldersByGraph(
 
 type MaskFolderMemberRepository struct {
 	*BaseRepository[domain.MaskFolderMember, uuid.UUID]
+}
+
+func NewMaskFolderMemberRepository(db *gorm.DB) *MaskFolderMemberRepository {
+	return &MaskFolderMemberRepository{
+		BaseRepository: NewBaseRepository[domain.MaskFolderMember, uuid.UUID](db),
+	}
 }
 
 func (mfmr *MaskFolderMemberRepository) GetAllMaskFolderMembersByFolder(

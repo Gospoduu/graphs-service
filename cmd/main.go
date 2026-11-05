@@ -30,6 +30,8 @@ func main() {
 		&domain.Edge{},
 		&domain.Mask{},
 		&domain.MaskMember{},
+		&domain.MaskFolder{},
+		&domain.MaskFolderMember{},
 	); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
@@ -40,6 +42,8 @@ func main() {
 	edgeRepo := repository.NewEdgeRepository(db)
 	maskRepo := repository.NewMaskRepository(db)
 	maskMemberRepo := repository.NewMaskMembersRepository(db)
+	maskFolderRepo := repository.NewMaskFolderRepository(db)
+	maskFolderMemberRepo := repository.NewMaskFolderMemberRepository(db)
 
 	userService := service.NewUserService(userRepo)
 	nodeService := service.NewNodeService(nodeRepo)
@@ -54,13 +58,19 @@ func main() {
 		maskMemberRepo,
 		graphService,
 	)
+	maskFolderService := service.NewMaskFolderService(
+		maskFolderRepo,
+		maskFolderMemberRepo,
+		maskService,
+	)
 
 	handlers := &v1.Handlers{
-		User:  v1.NewUserHandler(userService),
-		Graph: v1.NewGraphHandler(graphService),
-		Node:  v1.NewNodeHandler(nodeService),
-		Edge:  v1.NewEdgeHandler(edgeService),
-		Mask:  v1.NewMaskHandler(maskService),
+		User:       v1.NewUserHandler(userService),
+		Graph:      v1.NewGraphHandler(graphService),
+		Node:       v1.NewNodeHandler(nodeService),
+		Edge:       v1.NewEdgeHandler(edgeService),
+		Mask:       v1.NewMaskHandler(maskService),
+		MaskFolder: v1.NewMaskFolderHandler(maskFolderService),
 	}
 
 	router := gin.Default()

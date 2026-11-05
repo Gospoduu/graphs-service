@@ -40,14 +40,29 @@
           <div class="side-list" id="edges-list"></div>
         </div>
         <div class="side-section" id="section-masks">
-          <div class="side-head"><span>Маски · остовные деревья</span><span id="masks-count" class="count">0</span></div>
-          <form id="mask-form" class="mask-controls">
+          <div class="side-head explorer-head">
+            <span>Маски</span>
+            <span id="masks-count" class="count">0</span>
+            <div class="explorer-tools">
+              <button id="new-folder" class="ico-btn" title="Создать папку" aria-label="Создать папку" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7V4h7l2 3h9v13H3zM12 10v7m-3-3.5h6"/></svg></button>
+              <button id="new-mask" class="ico-btn" title="Создать маску" aria-label="Создать маску" aria-expanded="false">+</button>
+              <div class="algo-dropdown">
+                <button id="new-path-algo" class="ico-btn" title="Найти маршруты" aria-label="Найти маршруты" aria-expanded="false">∞</button>
+                <div id="path-algo-menu" class="algo-menu" hidden>
+                  <button type="button" data-algo="eulerian">Эйлеровы маршруты</button>
+                  <button type="button" data-algo="hamiltonian">Гамильтоновы маршруты</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <form id="mask-form" class="mask-controls" hidden>
             <label>Алгоритм<select id="mask-algorithm"><option value="bfs">BFS</option><option value="dfs">DFS</option><option value="mst">MST</option></select></label>
             <label id="mask-start-label">Имя стартовой ноды<input id="mask-start" type="number" step="1" placeholder="Например, 1" required></label>
             <button class="action" id="mask-create" type="submit">Создать маску</button>
             <button class="action" id="mask-clear" type="button">Снять выделение</button>
             <div class="mask-note" id="mask-note">Маски сохраняют выбранные рёбра и не пересчитываются при изменении графа.</div>
           </form>
+          <div class="mask-note explorer-note">Перетащи маску на папку, чтобы добавить её.</div>
           <div class="side-list" id="masks-list"></div>
         </div>
       </div>
@@ -101,6 +116,13 @@
   </div>
   <p id="matrix-description"></p>
   <div id="matrix-content" tabindex="0" aria-describedby="matrix-description"></div>
+</dialog>
+<dialog id="eulerian-dialog" aria-labelledby="eulerian-title">
+  <div class="matrix-header">
+    <h3 id="eulerian-title">Эйлеровы маршруты</h3>
+    <button id="eulerian-close" class="action" type="button" aria-label="Закрыть">✕</button>
+  </div>
+  <div id="eulerian-content"></div>
 </dialog>
 
 <script src="./graph-editor.js"></script>
