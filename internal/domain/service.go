@@ -38,6 +38,8 @@ type GraphService interface {
 	GetBFS(ctx context.Context, graph uuid.UUID, startNode uuid.UUID) (AdjacencyList, []uuid.UUID, error)
 	GetKruskalMST(ctx context.Context, graph uuid.UUID) (AdjacencyList, []uuid.UUID, error)
 	GetDFS(ctx context.Context, graph uuid.UUID, startNode uuid.UUID) (AdjacencyList, []uuid.UUID, error)
+	DijkstraPathfinding(ctx context.Context, graph uuid.UUID, startNode uuid.UUID, endNode uuid.UUID) ([]uuid.UUID, error)
+	FordBelmanPathfinding(ctx context.Context, graph uuid.UUID, startNode uuid.UUID, endNode uuid.UUID) ([]uuid.UUID, error)
 }
 
 type NodeService interface {

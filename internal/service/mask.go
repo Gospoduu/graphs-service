@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 
 	"github.com/Gospoduu/graphs-service/internal/domain"
 )
@@ -106,4 +109,70 @@ func (ms *MaskService) CreateMSTMask(ctx context.Context, graph uuid.UUID) (doma
 	name := fmt.Sprintf("MST Mask; Start Node")
 
 	return ms.createMask(ctx, graph, name, edges)
+}
+
+func (ms *MaskService) createShortestPathMask(
+	ctx context.Context,
+	graph, startNode uuid.UUID,
+	name string,
+	edges []uuid.UUID,
+) (domain.Mask, []uuid.UUID, error) {
+	zero := domain.Mask{}
+	if len(edges) == 0 {
+		return zero, nil, errors.New("path is empty: start and end coincide")
+	}
+	maskMeta, err := json.Marshal(struct {
+		IsPath      bool      `json:"is_path"`
+		StartNodeID uuid.UUID `json:"start_node_id"`
+	}{true, startNode})
+	if err != nil {
+		return zero, nil, err
+	}
+	mask, err := ms.repo.Create(ctx, domain.Mask{
+		GraphID:  graph,
+		Name:     name,
+		Metadata: datatypes.JSON(maskMeta),
+	})
+	if err != nil {
+		return zero, nil, err
+	}
+	for serial, edgeID := range edges {
+		metadata, err := json.Marshal(struct {
+			Serial int `json:"serial"`
+		}{Serial: serial})
+		if err != nil {
+			_ = ms.repo.DeleteByID(ctx, mask.ID)
+			return zero, nil, err
+		}
+		_, err = ms.membersRepo.Create(ctx, domain.MaskMember{
+			MaskID:   mask.ID,
+			EdgeID:   edgeID,
+			Metadata: datatypes.JSON(metadata),
+		})
+		if err != nil {
+			_ = ms.repo.DeleteByID(ctx, mask.ID)
+			return zero, nil, err
+		}
+	}
+	return mask, edges, nil
+}
+
+func (ms *MaskService) CreateDijkstraPathMask(ctx context.Context, graph, from, to uuid.UUID) (domain.Mask, []uuid.UUID, error) {
+	edges, err := ms.graphService.DijkstraPathfinding(ctx, graph, from, to)
+	zero := domain.Mask{}
+	if err != nil {
+		return zero, nil, err
+	}
+	name := fmt.Sprintf("Dijkstra Path Mask; From: %s; To: %s", from.String(), to.String())
+	return ms.createShortestPathMask(ctx, graph, from, name, edges)
+}
+
+func (ms *MaskService) CreateFordBellmanPathMask(ctx context.Context, graph, from, to uuid.UUID) (domain.Mask, []uuid.UUID, error) {
+	edges, err := ms.graphService.FordBelmanPathfinding(ctx, graph, from, to)
+	zero := domain.Mask{}
+	if err != nil {
+		return zero, nil, err
+	}
+	name := fmt.Sprintf("Ford-Bellman Path Mask; From: %s; To: %s", from.String(), to.String())
+	return ms.createShortestPathMask(ctx, graph, from, name, edges)
 }

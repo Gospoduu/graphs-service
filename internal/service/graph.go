@@ -41,6 +41,29 @@ func toAdjacencyList(
 	}
 	return al, edges, isDirected, nil
 }
+func toAdjacencyListV2(
+	nodes []domain.Node, edges []domain.Edge, isDirected bool,
+) (map[uuid.UUID][]domain.Edge, []domain.Edge, bool, error) {
+	al := make(map[uuid.UUID][]domain.Edge, len(nodes))
+	for _, edge := range edges {
+		al[edge.SourceID] = append(al[edge.SourceID], edge)
+		if !isDirected {
+			al[edge.TargetID] = append(al[edge.TargetID], edge)
+		} else {
+			_, ok := al[edge.TargetID]
+			if !ok {
+				al[edge.TargetID] = []domain.Edge{}
+			}
+		}
+	}
+	for _, node := range nodes {
+		_, ok := al[node.ID]
+		if !ok {
+			return nil, nil, false, NonConnectedGraphError
+		}
+	}
+	return al, edges, isDirected, nil
+}
 
 func isGraphConnected(nodes []domain.Node, edges []domain.Edge) bool {
 	if len(nodes) == 0 {
@@ -191,6 +214,15 @@ func (gs *GraphService) getAdjacencyList(
 		return nil, nil, false, err
 	}
 	return toAdjacencyList(nodes, edges, isDirected)
+}
+func (gs *GraphService) getAdjacencyListV2(
+	ctx context.Context, graph uuid.UUID, sort bool,
+) (map[uuid.UUID][]domain.Edge, []domain.Edge, bool, error) {
+	nodes, edges, isDirected, err := gs.getNodesAndEdges(ctx, graph, sort)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return toAdjacencyListV2(nodes, edges, isDirected)
 }
 
 func (gs *GraphService) GetDFS(ctx context.Context, graph uuid.UUID, startNode uuid.UUID) (domain.AdjacencyList, []uuid.UUID, bool, error) {

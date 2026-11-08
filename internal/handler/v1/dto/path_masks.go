@@ -12,6 +12,16 @@ type CreateEulerianMasksRequest struct {
 type CreateHamiltonianMasksRequest struct {
 	GraphID uuid.UUID `json:"graph_id" binding:"required"`
 }
+type CreateDijkstraMasksRequest struct {
+	GraphID uuid.UUID `json:"graph_id" binding:"required"`
+	From    uuid.UUID `json:"from" binding:"required"`
+	To      uuid.UUID `json:"to" binding:"required"`
+}
+type CreateFordBellmanMasksRequest struct {
+	GraphID uuid.UUID `json:"graph_id" binding:"required"`
+	From    uuid.UUID `json:"from" binding:"required"`
+	To      uuid.UUID `json:"to" binding:"required"`
+}
 
 // Предложение ещё не сохранено в БД, поэтому у него нет ID.
 type SuggestedEdgeResponse struct {

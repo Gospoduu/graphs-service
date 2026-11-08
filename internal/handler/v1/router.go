@@ -52,6 +52,8 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handlers) {
 		masks.POST("/dfs", h.Mask.CreateDFSMask)
 		masks.POST("/bfs", h.Mask.CreateBFSMask)
 		masks.POST("/mst", h.Mask.CreateMSTMask)
+		masks.POST("/dijkstra", h.Mask.CreateDijkstraMask)
+		masks.POST("/ford-bellman", h.Mask.CreateFordBellmanMask)
 		masks.GET("/:id", h.Mask.GetMaskByID)
 		masks.GET("/graph/:graph_id", h.Mask.GetAllMasksByGraph)
 		masks.DELETE("/:id", h.Mask.DeleteMaskByID)

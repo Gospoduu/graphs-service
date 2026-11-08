@@ -242,12 +242,17 @@ async function init(){
     document.getElementById('new-mask').setAttribute('aria-expanded',String(open));
     if(open)document.getElementById('mask-algorithm').focus();
   };
-  document.getElementById('mask-algorithm').onchange=()=>{
-    const mst=document.getElementById('mask-algorithm').value==='mst';
-    document.getElementById('mask-start-label').hidden=mst;
-    document.getElementById('mask-start').required=!mst;
-    renderMasks();
-  };
+  const syncMaskForm=()=>{
+  const algo=document.getElementById('mask-algorithm').value;
+  const mst=algo==='mst';
+  const shortest=algo==='dijkstra'||algo==='ford-bellman';
+  document.getElementById('mask-start-label').hidden=mst;
+  document.getElementById('mask-start').required=!mst;
+  document.getElementById('mask-end-label').hidden=!shortest;
+  document.getElementById('mask-end').required=shortest;
+};
+document.getElementById('mask-algorithm').onchange=()=>{syncMaskForm();renderMasks();};
+syncMaskForm();
   document.getElementById('mask-clear').onclick=()=>{const g=currentGraph();if(g){g.activeMaskId=null;renderAll();}};
   document.getElementById('new-folder').onclick=beginFolder;
   const cancelOutside=e=>{
@@ -476,8 +481,10 @@ function buildPathInfo(g, mask){
   const firstEdge = g.edges[ordered[0].edgeId];
   if(!firstEdge) return null;
 
-  const chain = tryBuildPathChain(g, ordered, firstEdge.source)
-             || tryBuildPathChain(g, ordered, firstEdge.target);
+  const startId = mask.metadata && mask.metadata.start_node_id;
+const chain = (startId && tryBuildPathChain(g, ordered, startId))
+           || tryBuildPathChain(g, ordered, firstEdge.source)
+           || tryBuildPathChain(g, ordered, firstEdge.target);
   if(!chain) return null; // данные реально несогласованы
 
   return {...chain, total: ordered.length};
@@ -580,20 +587,48 @@ function showPathDialog(g, res, algo){
 async function createMask(){
   const g=currentGraph();if(!g || g.maskBusy || g.folderBusy)return;
   const algorithm=document.getElementById('mask-algorithm').value;
+  const shortest=algorithm==='dijkstra'||algorithm==='ford-bellman';
   if(algorithm==='mst' && g.isDirected){toast('MST доступен только для неориентированного графа.');return;}
   if(algorithm==='mst' && !connected(g)){toast('Для MST нужен связный непустой граф.');return;}
-  const start=Object.values(g.nodes).find(n=>n.name===Number(document.getElementById('mask-start').value));
+
+  const findNode=inputId=>Object.values(g.nodes).find(n=>n.name===Number(document.getElementById(inputId).value));
+  const start=findNode('mask-start');
   if(algorithm!=='mst'&&!start){toast('Введи имя существующей стартовой ноды.');return;}
-  if(algorithm!=='mst'&&Object.keys(g.nodes).length===1){toast('BFS/DFS на сервере пока требуют граф с рёбрами.');return;}
-  const name=algorithm==='mst' ? ' MST Mask; Start Node' : algorithm.toUpperCase()+' Mask; Start Node: '+start.name;
+
+  let end=null;
+  if(shortest){
+    end=findNode('mask-end');
+    if(!end){toast('Введи имя существующей конечной ноды.');return;}
+    if(end.id===start.id){toast('Старт и конец совпадают, пути нет.');return;}
+    if(algorithm==='dijkstra'&&Object.values(g.edges).some(e=>e.weight<0)){
+      toast('Дейкстра не работает с отрицательными весами. Выбери Форд-Беллмана.');return;
+    }
+  }
+  if((algorithm==='bfs'||algorithm==='dfs')&&Object.keys(g.nodes).length===1){toast('BFS/DFS на сервере пока требуют граф с рёбрами.');return;}
+
+  let name;
+  if(algorithm==='mst') name=' MST Mask; Start Node';
+  else if(shortest) name=(algorithm==='dijkstra'?'Dijkstra':'Ford-Bellman')+' Path Mask; From: '+start.id+'; To: '+end.id;
+  else name=algorithm.toUpperCase()+' Mask; Start Node: '+start.name;
+
   g.maskBusy=true;pendingWrites++;renderMasks();
   try{
     await loadMasks(g);
     const existing=Object.values(g.masks).find(m=>algorithm==='mst' ? /^MST Mask(?:;|$)/.test(m.name) : m.name===name);
     if(existing){g.activeMaskId=existing.id;toast('Такая маска уже существует — выделена существующая.');return;}
-    const body={graph_id:g.id};if(algorithm!=='mst')body.start_id=start.id;
+
+    let body={graph_id:g.id};
+    if(shortest){body.from=start.id;body.to=end.id;}
+    else if(algorithm!=='mst'){body.start_id=start.id;}
+
     const mask=await api('POST','/masks/'+algorithm,body);
-    g.masks[mask.id]=normalizeMask(mask);g.activeMaskId=mask.id;
+    if(shortest){
+      // Перечитываем маски с сервера: так приходят is_path, start_node_id и serial у рёбер.
+      await loadMasks(g);
+    }else{
+      g.masks[mask.id]=normalizeMask(mask);
+    }
+    g.activeMaskId=mask.id;
   }catch(e){}finally{g.maskBusy=false;pendingWrites--;renderAll();}
 }
 async function deleteMask(g,id){

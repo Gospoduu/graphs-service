@@ -27,13 +27,13 @@
     <div id="sidebar">
       <div id="sidebar-toggle">◂</div>
       <div id="sidebar-content">
-        <div class="side-section" id="section-nodes">
+        <div class="side-section collapsed" id="section-nodes">
           <div class="side-head" data-target="nodes">
             <span>Ноды</span><span class="count" id="nodes-count">0</span>
           </div>
           <div class="side-list" id="nodes-list"></div>
         </div>
-        <div class="side-section" id="section-edges">
+        <div class="side-section collapsed" id="section-edges">
           <div class="side-head" data-target="edges">
             <span>Связи</span><span class="count" id="edges-count">0</span>
           </div>
@@ -56,8 +56,15 @@
             </div>
           </div>
           <form id="mask-form" class="mask-controls" hidden>
-            <label>Алгоритм<select id="mask-algorithm"><option value="bfs">BFS</option><option value="dfs">DFS</option><option value="mst">MST</option></select></label>
+            <label>Алгоритм<select id="mask-algorithm">
+              <option value="bfs">BFS</option>
+              <option value="dfs">DFS</option>
+              <option value="mst">MST</option>
+              <option value="dijkstra">Кратчайший путь: Дейкстра</option>
+              <option value="ford-bellman">Кратчайший путь: Форд-Беллман</option>
+            </select></label>
             <label id="mask-start-label">Имя стартовой ноды<input id="mask-start" type="number" step="1" placeholder="Например, 1" required></label>
+            <label id="mask-end-label" hidden>Имя конечной ноды<input id="mask-end" type="number" step="1" placeholder="Например, 5"></label>
             <button class="action" id="mask-create" type="submit">Создать маску</button>
             <button class="action" id="mask-clear" type="button">Снять выделение</button>
             <div class="mask-note" id="mask-note">Маски сохраняют выбранные рёбра и не пересчитываются при изменении графа.</div>
