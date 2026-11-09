@@ -168,7 +168,7 @@ func (ms *MaskService) CreateDijkstraPathMask(ctx context.Context, graph, from, 
 }
 
 func (ms *MaskService) CreateFordBellmanPathMask(ctx context.Context, graph, from, to uuid.UUID) (domain.Mask, []uuid.UUID, error) {
-	edges, err := ms.graphService.FordBelmanPathfinding(ctx, graph, from, to)
+	edges, err := ms.graphService.FordBellmanPathfinding(ctx, graph, from, to)
 	zero := domain.Mask{}
 	if err != nil {
 		return zero, nil, err

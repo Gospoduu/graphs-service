@@ -10,7 +10,7 @@ import (
 	"github.com/Gospoduu/graphs-service/internal/base"
 )
 
-func (gs *GraphService) FordBelmanPathfinding(ctx context.Context, graph, start, end uuid.UUID) ([]uuid.UUID, error) {
+func (gs *GraphService) FordBellmanPathfinding(ctx context.Context, graph, start, end uuid.UUID) ([]uuid.UUID, error) {
 	// start: uuid.UUID - start node; end uuid.UUID - end node -> []uuid.UUID - slice edges uuid
 	al, edges, isDirected, err := gs.getAdjacencyList(ctx, graph, false)
 	if err != nil {
@@ -30,8 +30,8 @@ func (gs *GraphService) FordBelmanPathfinding(ctx context.Context, graph, start,
 	for i := 0; i <= len(al)-1; i++ {
 		changed := false
 		for _, edge := range edges {
-			u := edge.Source.ID
-			v := edge.Target.ID
+			u := edge.SourceID
+			v := edge.TargetID
 			w := edge.Weight
 
 			dv, okv := dist[v]
